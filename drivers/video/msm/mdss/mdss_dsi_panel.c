@@ -31,7 +31,15 @@
 #endif
 
 #define DT_CMD_HDR 6
+#ifdef CONFIG_ZTEMT_MIPI_720P_R69431_SHARP_IPS_4P7
+/*NX404 mayu*/
+#define PW_ON_AVDD_EN_SLEEP   2
+#define PW_ON_AVDD_NEG_SLEEP  6
 
+#define PW_OFF_AVDD_NEG_SLEEP 10
+#define PW_OFF_AVDD_EN_SLEEP  10
+#define PW_OFF_RESET_SLEEP    5
+#endif
 #ifdef CONFIG_ZTEMT_HW_VERSION_NX505J
 extern int ztemt_get_hw_id(void);
 #endif

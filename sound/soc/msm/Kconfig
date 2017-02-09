@@ -4,15 +4,6 @@ menu "MSM SoC Audio support"
 config SND_MSM_DAI_SOC
 	tristate
 
-config ZTEMT_AUDIO_EXT_AMP
-       tristate "ZTEMT_AUDIO_EXT_AMP"
-
-config ZTEMT_AUDIO_HEADSET_SW
-       tristate "ZTEMT_AUDIO_EXT_AMP"
-
-config ZTEMT_AUDIO_MBHC_OPEN
-       tristate "ZTEMT_AUDIO_EXT_AMP"
-
 config SND_MSM_SOC_MSM7K
 	 tristate
 
@@ -193,7 +184,6 @@ config SND_SOC_MSM8974
 	select SND_DYNAMIC_MINORS
 	select AUDIO_OCMEM
 	select DOLBY_DAP
-	select SND_HWDEP
 	help
 	 To add support for SoC audio on MSM8974.
 	 This will enable sound soc drivers which

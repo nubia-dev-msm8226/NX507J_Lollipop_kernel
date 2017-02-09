@@ -51,11 +51,13 @@
 				linux,code = <116>;
 			};
 
+			/*
 			qcom,pon_2 {
 				qcom,pon-type = <1>;
 				qcom,pull-up = <1>;
 				linux,code = <114>;
 			};
+			*/
 
 			qcom,pon_3 {
 				qcom,pon-type = <3>;
@@ -68,6 +70,10 @@
 			};
 		};
 
+/* Charger
+*
+* CONFIG_ZTEMT_CHARGE
+*/
 		pm8226_chg: qcom,charger {
 			spmi-dev-container;
 			compatible = "qcom,qpnp-charger";
@@ -75,13 +81,20 @@
 			#size-cells = <1>;
 			status = "disabled";
 
-			qcom,vddmax-mv = <4200>;
-			qcom,vddsafe-mv = <4230>;
-			qcom,vinmin-mv = <4300>;
+			/*qcom,vddmax-mv = <4200>;*/
+			/*qcom,vddsafe-mv = <4230>;*/
+			qcom,vddmax-mv = <4350>;
+			qcom,vddsafe-mv = <4360>;
+
+			/*qcom,vinmin-mv = <4300>;*/
+                        qcom,vinmin-mv = <4400>;
 			qcom,vbatdet-delta-mv = <100>;
-			qcom,ibatmax-ma = <1500>;
+			
+			/* qcom,ibatmax-ma = <1500>;*/
+			qcom,ibatmax-ma = <1000>;
 			qcom,ibatterm-ma = <100>;
-			qcom,ibatsafe-ma = <1500>;
+			/*qcom,ibatsafe-ma = <1500>;*/
+			qcom,ibatsafe-ma = <1000>;
 			qcom,thermal-mitigation = <1500 700 600 325>;
 			qcom,resume-soc = <99>;
 			qcom,tchg-mins = <150>;
@@ -96,6 +109,16 @@
 			qcom,ibatmax-cool-ma = <350>;
 			qcom,chg-iadc = <&pm8226_iadc>;
 			qcom,ibat-calibration-enabled;
+
+			/*Add By ZTEMT -begin -Use Extended Battery Temperature Range*/
+			qcom,batt-hot-percentage = <25>;
+			qcom,batt-cold-percentage = <80>;
+			/*Add By ZTEMT -end*/
+
+			/* ZTEMT Add*/
+			qcom,use-external-rsense = <1>;
+
+			/*qcom,btc-disabled;*/
 
 			pm8226_chg_chgr: qcom,chgr@1000 {
 				status = "disabled";
@@ -186,6 +209,11 @@
 			};
 		};
 
+
+/*  BMS
+*
+* CONFIG_ZTEMT_CHARGE
+*/
 		pm8226_bms: qcom,bms {
 			spmi-dev-container;
 			compatible = "qcom,qpnp-bms";
@@ -195,7 +223,10 @@
 
 			qcom,r-sense-uohm = <10000>;
 			qcom,v-cutoff-uv = <3400000>;
-			qcom,max-voltage-uv = <4200000>;
+			
+			/*qcom,max-voltage-uv = <4200000>;*/
+			qcom,max-voltage-uv = <4350000>;
+		
 			qcom,r-conn-mohm = <0>;
 			qcom,shutdown-soc-valid-limit = <100>;
 			qcom,adjust-soc-low-threshold = <15>;
@@ -206,7 +237,10 @@
 			qcom,low-soc-calculate-soc-ms = <5000>;
 			qcom,calculate-soc-ms = <20000>;
 			qcom,chg-term-ua = <100000>;
-			qcom,batt-type = <0>;
+
+			/*qcom,batt-type = <0>;*/
+				qcom,batt-type = <1>;
+			
 			qcom,tm-temp-margin = <5000>;
 			qcom,low-ocv-correction-limit-uv = <100>;
 			qcom,high-ocv-correction-limit-uv = <250>;
@@ -766,7 +800,8 @@
 			regulator-name = "8226_l27";
 			reg = <0x5a00 0x100>;
 			compatible = "qcom,qpnp-regulator";
-			status = "disabled";
+			qcom,pull-down-enable = <1>;
+			status = "okay";
 		};
 
 		regulator@5b00 {
@@ -864,6 +899,22 @@
 						"flash0_trigger";
 				qcom,id = <1>;
 				linux,name = "led:flash_0";
+				qcom,current = <625>;
+			};
+
+			pm8226_flash1: qcom,flash_1 {
+				qcom,max-current = <1000>;
+				qcom,default-state = "off";
+				qcom,headroom = <3>;
+				qcom,duration = <1280>;
+				qcom,clamp-curr = <200>;
+				qcom,startup-dly = <3>;
+				qcom,safety-timer;
+				linux,default-trigger =
+						"flash1_trigger";
+				label = "flash";
+				qcom,id = <2>;
+				linux,name = "led:flash_1";
 				qcom,current = <625>;
 			};
 

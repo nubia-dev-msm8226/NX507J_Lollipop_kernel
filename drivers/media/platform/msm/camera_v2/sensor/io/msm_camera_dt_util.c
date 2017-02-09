@@ -15,7 +15,6 @@
 #include "msm_camera_io_util.h"
 #include "msm_camera_i2c_mux.h"
 #include "msm_cci.h"
-#include "../msm_sensor.h"
 
 /*#define CONFIG_MSM_CAMERA_DT_DEBUG*/
 #undef CDBG

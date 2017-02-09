@@ -3814,8 +3814,8 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 		batt_data = &ztemt_nx507_2300mAh_data;
         #elif defined(CONFIG_ZTEMT_BATT_3000MAH)
 		batt_data = &ztemt_3000mAh_data;
-		#elif defined(CONFIG_ZTEMT_BATT_3000MAH_NX506J)
-		batt_data = &ztemt_3000mAh_data_nx506;
+        #elif defined(CONFIG_ZTEMT_2000AMH_BATTERY)
+		batt_data = &ztemt_2000mAh_data;
 		#else
 		batt_data = &oem_batt_data;
 		#endif

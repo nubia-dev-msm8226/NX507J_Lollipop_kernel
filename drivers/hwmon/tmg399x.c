@@ -41,7 +41,6 @@
 #include <linux/uaccess.h>
 #include <linux/miscdevice.h>
 #include <linux/hrtimer.h>
-#include <linux/of_gpio.h>
 
 #define LOG_TAG "SENSOR_ALS_PROX_GES"
 #define DEBUG_ON //DEBUG SWITCH
@@ -68,7 +67,7 @@
 #define SENSOR_LOG_DEBUG(fmt, args...)
 #endif
 
-
+#define CAL_THRESHOLD   "/persist/proxdata/threshold"
 
 
 static u8 const tmg399x_ids[] = {
@@ -213,7 +212,7 @@ static const struct dev_pm_ops tmg399x_pm_ops = {
 
 struct i2c_driver tmg399x_driver = {
 	.driver = {
-		.name = "ams-sensor-tmg3993",
+		.name = "ams-sensor",
         .of_match_table = of_tmg399x_idtable,
 		.pm = &tmg399x_pm_ops,
 	},
@@ -226,6 +225,14 @@ struct i2c_driver tmg399x_driver = {
 
 /**********************************  MARCO START ****************************************/
 
+#define	AMS_ALS_POLL_DELAY_FAST	         500
+#define	AMS_ALS_POLL_DELAY_SLOW	         1000
+#define AMS_ALS_ATIME_LONG               0xEE
+#define AMS_ALS_ATIME_SHORT              0xF8
+
+#define PROX_FAR                     0
+#define PROX_NEAR                    1
+#define PROX_UNKNOW                 -1
 /**********************************  MARCO  END  ****************************************/
 
 /**********************************  VARIABLE START ****************************************/
@@ -257,16 +264,19 @@ static void tmg399x_report_prox(struct tmg399x_chip *chip);
 
 static int board_tmg399x_init(void)
 {
+    SENSOR_LOG_INFO("\n");
 	return 0;
 }
 
 static int board_tmg399x_power(struct device *dev, enum tmg399x_pwr_state state)
 {
+    SENSOR_LOG_INFO("\n");
 	return 0;
 }
 
 static void board_tmg399x_teardown(struct device *dev)
 {
+    SENSOR_LOG_INFO("\n");
 }
 
 static const struct lux_segment tmg399x_segment[] = {
@@ -300,27 +310,27 @@ struct tmg399x_i2c_platform_data tmg399x_data = {
 		.als_gain = AGAIN_16,
 		.als_deltaP = 10,
 		.wait_time = 0xF6, //10* 2.78ms 
-		.prox_th_low = PROX_DEFAULT_THRESHOLD_LOW,
-		.prox_th_high = PROX_DEFAULT_THRESHOLD_HIGH,
+		.prox_th_low = 120,
+		.prox_th_high = 150,
 		.persist = PRX_PERSIST(1) | ALS_PERSIST(2),
 		.als_prox_cfg1 = 0x60,
-		.prox_pulse = PPLEN_8US | PRX_PULSE_CNT(PROX_LED_PULSE_CNT),
+		.prox_pulse = PPLEN_16US | PRX_PULSE_CNT(1),
 		.prox_gain = PGAIN_4,
 		.ldrive = PDRIVE_100MA,
-        .als_prox_cfg2 = LEDBOOST_150 | 0x01,
-		.prox_offset_ne = PROX_DEFAULT_OFFSET_NE,
-		.prox_offset_sw = PROX_DEFAULT_OFFSET_SW,
+        .als_prox_cfg2 = LEDBOOST_300 | 0x01,
+		.prox_offset_ne = 0,
+		.prox_offset_sw = 0,
 		.als_prox_cfg3 = 0,
 		
-		.ges_entry_th = GESTURE_ENTER_THRESHOLD,
-		.ges_exit_th = GESTURE_EXIT_THRESHOLD,
+		.ges_entry_th = 0,
+		.ges_exit_th = 0,
 		.ges_cfg1 = FIFOTH_4| GEXPERS_1,
 		.ges_cfg2 = GGAIN_4 | GLDRIVE_100 | GWTIME_3,
-		.ges_offset_n = GESTURE_DEFAULT_OFFSET_N,
-		.ges_offset_s = GESTURE_DEFAULT_OFFSET_S,
-		.ges_pulse = GPLEN_16US | GES_PULSE_CNT(GESTURE_LED_PULSE_CNT),
-		.ges_offset_w = GESTURE_DEFAULT_OFFSET_W,
-		.ges_offset_e = GESTURE_DEFAULT_OFFSET_E,
+		.ges_offset_n = 30,
+		.ges_offset_s = 0,
+		.ges_pulse = GPLEN_32US | GES_PULSE_CNT(2),
+		.ges_offset_w = 0,
+		.ges_offset_e = 0,
 		.ges_dimension = GBOTH_PAIR,
 	},
 	.als_can_wake = false,
@@ -329,40 +339,6 @@ struct tmg399x_i2c_platform_data tmg399x_data = {
 	.segment_num = ARRAY_SIZE(tmg399x_segment),
 
 };
-
-static int tmg399x_parse_dt(struct tmg399x_chip *chip)
-{
-    int rc = 0;
-	u32 tmp;
-	struct device_node *np = chip->client->dev.of_node;
-
-	chip->irq_pin_num = of_get_named_gpio(np, "ams,irq-gpio", 0);
-    SENSOR_LOG_INFO("irq_pin_num is %d\n",chip->irq_pin_num);
-
-	rc = of_property_read_u32(np, "ams,prox-offset-cal-ability-tmg399x", &tmp);
-	chip->prox_offset_cal_ability = (!rc ? tmp : 15);
-    SENSOR_LOG_INFO("prox_offset_cal_ability is %d\n", chip->prox_offset_cal_ability);
-
-	rc = of_property_read_u32(np, "ams,gesture-offset-cal-ability-tmg399x", &tmp);
-	chip->gesture_offset_cal_ability = (!rc ? tmp : 35);
-    SENSOR_LOG_INFO("gesture_offset_cal_ability is %d\n", chip->gesture_offset_cal_ability);
-
-	rc = of_property_read_u32(np, "ams,prox-led-plus-cnt-tmg399x", &tmp);
-	chip->prox_led_plus_cnt = (!rc ? tmp : 4);
-    SENSOR_LOG_INFO("prox_led_plus_cnt is %d\n", chip->prox_led_plus_cnt);
-
-	rc = of_property_read_u32(np, "ams,gesture-led-plus-cnt-tmg399x", &tmp);
-	chip->gesture_led_plus_cnt = (!rc ? tmp : 4);
-    SENSOR_LOG_INFO("gesture_led_plus_cnt is %d\n", chip->gesture_led_plus_cnt);
-
-	rc = of_property_read_u32(np, "ams,light-percent", &tmp);
-	chip->light_percent = (!rc ? tmp : 100);
-    SENSOR_LOG_INFO("light_percent is %d\n", chip->light_percent);
-
-
-    return 0;
-}
-
 
 static int tmg399x_i2c_read(struct tmg399x_chip *chip, u8 reg, u8 *val)
 {
@@ -469,6 +445,8 @@ static int tmg399x_flush_regs(struct tmg399x_chip *chip)
 	int ret;
 	u8 reg;
 
+	dev_info(&chip->client->dev, "%s\n", __func__);
+
 	for (i = 0; i < ARRAY_SIZE(restorable_regs); i++) {
 		reg = restorable_regs[i];
 		ret = tmg399x_i2c_write(chip, reg, chip->shadow[reg]);
@@ -484,14 +462,9 @@ static int tmg399x_flush_regs(struct tmg399x_chip *chip)
 
 static void tmg399x_wakelock_ops(struct tmg399x_wake_lock *wakelock, bool enable)
 {
-	//struct tmg399x_chip *chip = container_of(wakelock, struct tmg399x_chip, proximity_wakelock);
-
     if (enable == wakelock->locked)
     {
-        if ((false==p_global_tmg399x_chip->prox_threshold_cal_start) && (false==p_global_tmg399x_chip->prox_offset_cal_start))
-        {
-            SENSOR_LOG_INFO("doubule %s %s, retern here\n",enable? "lock" : "unlock",wakelock->name);
-        }
+        SENSOR_LOG_INFO("doubule %s %s, retern here\n",enable? "lock" : "unlock",wakelock->name);
         return;
     }
 
@@ -512,44 +485,29 @@ static void tmg399x_wakelock_ops(struct tmg399x_wake_lock *wakelock, bool enable
 
 static void tmg399x_chip_data_init(struct tmg399x_chip *chip)
 {
-    chip->light_debug_enable                = false;
-    chip->prox_debug_enable                 = false;
-    chip->ges_debug_enable                  = false;
-    chip->prx_enabled                       = false;
-    chip->als_enabled                       = false;
-    chip->ges_enabled                       = false;
-    chip->prox_calibrate_result             = false;
-    chip->prox_offset_cal_result            = false;
-    chip->gesture_offset_cal_result         = false;
-    chip->prox_data_max                     = PROX_DATA_MAX;
-    chip->prox_manual_calibrate_threshold   = 0;
-    chip->prox_thres_hi_max                 = PROX_THRESHOLD_HIGH_MAX;
-    chip->prox_thres_hi_min                 = PROX_DATA_SAFE_RANGE_MAX + PROX_THRESHOLD_DISTANCE;
-    chip->prox_data_safe_range_max          = PROX_DATA_SAFE_RANGE_MAX;
-    chip->prox_data_safe_range_min          = PROX_DATA_SAFE_RANGE_MIN;
-    chip->gesture_data_max                  = GESTURE_DATA_MAX;
-    chip->gesture_data_safe_range_max       = GESTURE_DATA_SAFE_RANGE_MAX;
-    chip->gesture_data_safe_range_min       = GESTURE_DATA_SAFE_RANGE_MIN;
-    chip->prox_offset_cal_per_bit           = chip->prox_offset_cal_ability * chip->prox_led_plus_cnt;
-    chip->gesture_offset_cal_per_bit        = chip->gesture_offset_cal_ability * chip->gesture_led_plus_cnt;
-    chip->prox_calibrate_times              = 0;
-    chip->prox_uncover_data                 = 0;
-    chip->chip_name                         = "tmg3993";
-    chip->wakeup_from_sleep                 = false;
-    chip->wakelock_locked                   = false;
-    chip->irq_enabled                       = true;
-    chip->gesture_start                     = false;
-    chip->prox_threshold_cal_start          = false;
-    chip->prox_offset_cal_start             = false;
-    chip->gesture_offset_cal_start          = false;
-    chip->phone_is_sleep                    = false;
-    chip->irq_work_status                   = false;
-    chip->gesture_offset_cal_pending        = false;
-    chip->proximity_wakelock.name           = "proximity-wakelock";
-    chip->proximity_wakelock.locked         = false;
-    chip->light_poll_time                   = AMS_ALS_POLL_DELAY_SLOW;
-	chip->prox_calibrate_verify             = true;
-	chip->prox_offset_cal_verify            = true;
+    chip->light_debug_enable      = false;
+    chip->prox_debug_enable       = false;
+    chip->ges_debug_enable        = false;
+    chip->prx_enabled             = false;
+    chip->als_enabled             = false;
+    chip->ges_enabled             = false;
+    chip->prox_calibrate_result   = false;
+    chip->prox_data_max           = 255;
+    chip->prox_manual_calibrate_threshold = 0;
+    chip->prox_thres_hi_max       = 200;
+    chip->prox_thres_lo_min       = 100;
+    chip->prox_calibrate_times    = 0;
+    chip->chip_name               = "tmg3993";
+    chip->wakeup_from_sleep       = false;
+    chip->wakelock_locked         = false;
+    chip->irq_enabled             = true;
+    chip->gesture_start           = false;
+    chip->prox_calibrate_start    = false;
+    chip->phone_is_sleep          = false;
+    chip->irq_work_status         = false;
+    chip->proximity_wakelock.name = "proximity-wakelock";
+    chip->proximity_wakelock.locked = false;
+    chip->light_poll_time         = AMS_ALS_POLL_DELAY_SLOW;
 }
 
 static void tmg399x_irq_enable(bool enable, bool flag_sync)
@@ -558,10 +516,6 @@ static void tmg399x_irq_enable(bool enable, bool flag_sync)
     {
         SENSOR_LOG_INFO("doubule %s irq, retern here\n",enable? "enable" : "disable");
         return;
-    }
-    else
-    {
-        p_global_tmg399x_chip->irq_enabled  = enable;
     }
 
     if (enable)
@@ -580,6 +534,9 @@ static void tmg399x_irq_enable(bool enable, bool flag_sync)
             disable_irq_nosync(p_global_tmg399x_chip->client->irq);
         }
     }
+
+    p_global_tmg399x_chip->irq_enabled  = enable;
+    //SENSOR_LOG_INFO("%s irq \n",enable? "enable" : "disable");
 }
 
 
@@ -894,13 +851,6 @@ static int tmg399x_resume(struct device *dev)
     {
 		SENSOR_LOG_INFO("disable_irq_wake failed\n");
     }
-
-    if (true == chip->als_enabled)
-    {
-       SENSOR_LOG_INFO("recovery light sensor work\n");
-       schedule_delayed_work(&chip->als_poll_work, msecs_to_jiffies(1000));
-    }
-
     SENSOR_LOG_INFO("eixt\n");
 	mutex_unlock(&chip->lock);
     return ret ;
@@ -923,16 +873,6 @@ static int tmg399x_suspend(struct device *dev)
 	if(ret < 0)
     {
 		SENSOR_LOG_INFO("enable_irq_wake failed\n");
-    }
-
-    if (true == chip->als_enabled)
-    {
-        SENSOR_LOG_INFO("cancle light sensor work start\n");
-        cancel_delayed_work(&(chip->als_poll_work));
-        SENSOR_LOG_INFO("cancle light sensor work ...\n");
-        flush_delayed_work(&(chip->als_poll_work));
-        SENSOR_LOG_INFO("cancle light sensor work end\n");
-
     }
 
     SENSOR_LOG_INFO("eixt\n");
@@ -989,16 +929,7 @@ static u8 tmg399x_get_ges(struct tmg399x_chip *chip)
                                                        chip->gesture_data[i].north,
                                                        chip->gesture_data[i].south,
                                                        chip->gesture_data[i].west,
-                                                       chip->gesture_data[i].east);
-                }
-
-                if (chip->gesture_offset_cal_start)
-                {
-                    input_report_rel(chip->g_idev, REL_X,       chip->gesture_data[0].north);
-                    input_report_rel(chip->g_idev, REL_Y,       chip->gesture_data[0].south);
-                    input_report_rel(chip->g_idev, REL_Z,       chip->gesture_data[0].west);
-                    input_report_rel(chip->g_idev, REL_WHEEL,   chip->gesture_data[0].east);
-                    input_sync(chip->g_idev);
+                                                       chip->gesture_data[i].east);   
                 }
             }
 
@@ -1052,18 +983,14 @@ static int tmg399x_get_prox(struct tmg399x_chip *chip)
     int ret = 0;
 	chip->prx_inf.raw = chip->shadow[TMG399X_PRX_CHAN];
 
-    if (chip->prox_debug_enable || chip->prox_threshold_cal_start || chip->prox_offset_cal_start)
+    if (chip->prox_debug_enable || chip->prox_calibrate_start)
     {
-        if (chip->prox_debug_enable)
-        {
-            SENSOR_LOG_ERROR("state = %d, data = %d, hi = %d, low = %d\n",
-                                                                         chip->prx_inf.detected,
-                                                                         chip->prx_inf.raw,
-                                                                         chip->params.prox_th_high,
-                                                                         chip->params.prox_th_low);
-        }
-
-        if (chip->prox_threshold_cal_start || chip->prox_offset_cal_start)
+        SENSOR_LOG_ERROR("state = %d, data = %d, hi = %d, low = %d\n",
+                                                                     chip->prx_inf.detected,
+                                                                     chip->prx_inf.raw,
+                                                                     chip->params.prox_th_high,
+                                                                     chip->params.prox_th_low);
+        if (chip->prox_calibrate_start)
         {
             ret = 1;
         }
@@ -1087,7 +1014,7 @@ static int tmg399x_get_prox(struct tmg399x_chip *chip)
                 SENSOR_LOG_INFO("FAR!\n");
                 chip->prx_inf.detected = PROX_FAR;
                 chip->shadow[TMG399X_PRX_THRES_LOW] = 0x00;
-                chip->shadow[TMG399X_PRX_THRES_HIGH] = chip->params.prox_th_high; 
+                chip->shadow[TMG399X_PRX_THRES_HIGH] = chip->params.prox_th_high;
                 tmg399x_i2c_write(chip, TMG399X_PRX_THRES_LOW, chip->shadow[TMG399X_PRX_THRES_LOW]);
                 tmg399x_i2c_write(chip, TMG399X_PRX_THRES_HIGH, chip->shadow[TMG399X_PRX_THRES_HIGH]);
                 ret = 1;  
@@ -1740,93 +1667,17 @@ static ssize_t tmg399x_prox_thres_hi_max(struct device *dev, struct device_attri
 	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_thres_hi_max);
 }
 
-static ssize_t tmg399x_prox_thres_hi_min(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t tmg399x_prox_thres_lo_min(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_thres_hi_min);
+	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_thres_lo_min);
 }
 
-static ssize_t tmg399x_prox_data_safa_range_max_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox offset max range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->prox_data_safe_range_max = input_data;
-	return size;
-}
-
-static ssize_t tmg399x_prox_data_safa_range_max_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_data_safe_range_max);
-}
-
-static ssize_t tmg399x_prox_data_safa_range_min_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox offset min range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->prox_data_safe_range_min = input_data;
-	return size;
-}
-
-
-static ssize_t tmg399x_prox_data_safa_range_min_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_data_safe_range_min);
-}
-
-static ssize_t tmg399x_prox_data_max_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox data max range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->prox_data_max = input_data;
-	return size;
-}
-
-
-static ssize_t tmg399x_prox_data_max_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t tmg399x_prox_data_max(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
 	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_data_max);
 }
-
-
 static ssize_t tmg399x_manual_calibrate_threshold(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
@@ -2582,314 +2433,52 @@ static ssize_t tmg399x_sat_irq_en_store(struct device *dev,
 		chip->shadow[TMG399X_CONFIG_2] |= PSIEN;
 	chip->params.als_prox_cfg2 = chip->shadow[TMG399X_CONFIG_2];
 	tmg399x_i2c_write(chip, TMG399X_CONFIG_2, chip->shadow[TMG399X_CONFIG_2]);
-	mutex_unlock(&chip->lock); 
+	mutex_unlock(&chip->lock);
 	return size;
 }
-
-static int tmg399x_prox_threshold_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_CAL_THRESHOLD))<0)
-    {
-    	SENSOR_LOG_ERROR("tmg399x_prox_init<0\n");
-    	ret = tmg399x_write_cal_file(PATH_CAL_THRESHOLD,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("ERROR=%s\n",PATH_CAL_THRESHOLD);
-    		return -EINVAL;
-    	}
-    	chip->prox_calibrate_times = 5;	
-        schedule_delayed_work(&p_global_tmg399x_chip->prox_thres_cal_work, msecs_to_jiffies(1000));
-    }
-    else 
-    {
-        if (ret==0)
-        {
-            chip->prox_calibrate_times = 5;	
-            schedule_delayed_work(&p_global_tmg399x_chip->prox_thres_cal_work, msecs_to_jiffies(1000));
-            SENSOR_LOG_ERROR("tmg399x_prox_calibrate==1\n");
-        }
-    	else 
-        {
-	        chip->prox_manual_calibrate_threshold = ret;
-            chip->params.prox_th_high = ret;
-            chip->params.prox_th_high = (chip->params.prox_th_high > PROX_THRESHOLD_HIGH_MIN) ? chip->params.prox_th_high : PROX_THRESHOLD_HIGH_MIN;
-            chip->params.prox_th_high = (chip->params.prox_th_high > chip->prox_thres_hi_min) ? chip->params.prox_th_high : chip->prox_thres_hi_min;
-            chip->params.prox_th_low  = chip->params.prox_th_high - PROX_THRESHOLD_DISTANCE;
-    		input_report_rel(chip->p_idev, REL_Y, chip->params.prox_th_high);
-    		input_report_rel(chip->p_idev, REL_Z, chip->params.prox_th_low);
-    		input_sync(chip->p_idev);
-    		SENSOR_LOG_ERROR("tmg399x_prox_init> 0\n");
-        }
-    }
-    return ret;
-}
-
-
-static int tmg399x_prox_uncover_data_init(struct tmg399x_chip *chip)
-{
-    int ret;
-
-    if((ret=tmg399x_read_cal_value(PATH_PROX_UNCOVER_DATA))>0)
-    {
-        chip->prox_uncover_data = ret;
-        chip->prox_thres_hi_min = chip->prox_uncover_data + PROX_THRESHOLD_SAFE_DISTANCE;
-        chip->prox_thres_hi_min = (chip->prox_thres_hi_min > PROX_THRESHOLD_HIGH_MIN) ? chip->prox_thres_hi_min : PROX_THRESHOLD_HIGH_MIN;
-    }
-    
-    return ret;
-}
-
-
-
-static int tmg399x_prox_offset_ne_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.prox_offset_ne = (u8)offset;
-	chip->shadow[TMG399X_PRX_OFFSET_NE] = offset;
-   	ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_NE, offset);
-    if (ret<0)
-    {
-        SENSOR_LOG_ERROR("write prox_offset_ne failed\n");
-    }
-    return ret;
-}
-
-static int tmg399x_prox_offset_sw_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.prox_offset_sw= (u8)offset;
-	chip->shadow[TMG399X_PRX_OFFSET_SW] = offset;
-   	ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_SW, offset);
-    if (ret<0)
-    {
-        SENSOR_LOG_ERROR("write prox_offset_sw failed\n");
-    }
-    return ret;
-}
-
-static int tmg399x_prox_offset_ne_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_PROX_OFFSET_NE))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_PROX_OFFSET_NE);
-    	ret = tmg399x_write_cal_file(PATH_PROX_OFFSET_NE,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_PROX_OFFSET_NE);
-            tmg399x_prox_offset_ne_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_prox_offset_ne_set(chip, ret);
-    }
-    
-    return ret;
-}
-
-static int tmg399x_prox_offset_sw_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_PROX_OFFSET_SW))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_PROX_OFFSET_SW);
-    	ret = tmg399x_write_cal_file(PATH_PROX_OFFSET_SW,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_PROX_OFFSET_SW);
-            tmg399x_prox_offset_sw_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_prox_offset_sw_set(chip, ret);
-    }
-
-    return ret;
-}
-
-
-static void tmg399x_prox_offset_init(struct tmg399x_chip *chip)
-{
-    tmg399x_prox_offset_ne_init(chip);
-    tmg399x_prox_offset_sw_init(chip);
-}
-
-static int tmg399x_gesture_offset_n_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.ges_offset_n = offset;
-    chip->pdata->parameters.ges_offset_n = offset;
-    chip->shadow[TMG399X_GES_OFFSET_N] = offset;
-    ret = tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_N, (u8)(offset & 0xff));
-    if (ret<0)
-    {   
-        SENSOR_LOG_ERROR("write gesture_offset_n failed\n");
-    }
-    return ret;
-}
-
-static int tmg399x_gesture_offset_s_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.ges_offset_s = offset;
-    chip->pdata->parameters.ges_offset_s = offset;
-    chip->shadow[TMG399X_GES_OFFSET_S] = offset;
-    ret = tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_S, (u8)(offset & 0xff));
-    if (ret<0)
-    {   
-        SENSOR_LOG_ERROR("write gesture_offset_s failed\n");
-    }
-    return ret;
-}
-
-static int tmg399x_gesture_offset_w_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.ges_offset_w = offset;
-    chip->pdata->parameters.ges_offset_w = offset;
-    chip->shadow[TMG399X_GES_OFFSET_W] = offset;
-    ret = tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_W, (u8)(offset & 0xff));
-    if (ret<0)
-    {   
-        SENSOR_LOG_ERROR("write gesture_offset_w failed\n");
-    }
-    return ret;
-}
-
-static int tmg399x_gesture_offset_e_set(struct tmg399x_chip *chip, int offset)
-{
-    int ret;
-    chip->params.ges_offset_e = offset;
-    chip->pdata->parameters.ges_offset_e = offset;
-    chip->shadow[TMG399X_GES_OFFSET_E] = offset;
-    ret = tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_E, (u8)(offset & 0xff));
-    if (ret<0)
-    {   
-        SENSOR_LOG_ERROR("write gesture_offset_e failed\n");
-    }
-    return ret;
-}
-
-
-static int tmg399x_gesture_offset_n_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_GESTURE_OFFSET_N))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_GESTURE_OFFSET_N);
-    	ret = tmg399x_write_cal_file(PATH_GESTURE_OFFSET_N,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_GESTURE_OFFSET_N);
-            tmg399x_gesture_offset_n_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_gesture_offset_n_set(chip, ret);
-        SENSOR_LOG_ERROR("init %s success\n",PATH_GESTURE_OFFSET_N);
-    }
-
-    return ret;
-}
-
-static int tmg399x_gesture_offset_s_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_GESTURE_OFFSET_S))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_GESTURE_OFFSET_S);
-    	ret = tmg399x_write_cal_file(PATH_GESTURE_OFFSET_S,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_GESTURE_OFFSET_S);
-            tmg399x_gesture_offset_s_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_gesture_offset_s_set(chip, ret);
-        SENSOR_LOG_ERROR("init %s success\n",PATH_GESTURE_OFFSET_S);
-    }
-
-    return ret;
-}
-
-static int tmg399x_gesture_offset_w_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_GESTURE_OFFSET_W))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_GESTURE_OFFSET_W);
-    	ret = tmg399x_write_cal_file(PATH_GESTURE_OFFSET_W,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_GESTURE_OFFSET_W);
-            tmg399x_gesture_offset_w_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_gesture_offset_w_set(chip, ret);
-        SENSOR_LOG_ERROR("init %s success\n",PATH_GESTURE_OFFSET_W);
-    }
-
-    return ret;
-}
-
-static int tmg399x_gesture_offset_e_init(struct tmg399x_chip *chip)
-{
-    int ret;
-    if((ret=tmg399x_read_cal_value(PATH_GESTURE_OFFSET_E))<0)
-    {
-    	SENSOR_LOG_ERROR("read %s failed\n",PATH_GESTURE_OFFSET_E);
-    	ret = tmg399x_write_cal_file(PATH_GESTURE_OFFSET_E,0);
-    	if(ret < 0)
-    	{
-    		SENSOR_LOG_ERROR("write %s failed\n",PATH_GESTURE_OFFSET_E);
-            tmg399x_gesture_offset_e_set(chip, 0);
-    	}
-    }
-    else
-    {
-        tmg399x_gesture_offset_e_set(chip, ret);
-        SENSOR_LOG_ERROR("init %s success\n",PATH_GESTURE_OFFSET_E);
-    }
-
-    return ret;
-}
-
-static void tmg399x_gesture_offset_init(struct tmg399x_chip *chip)
-{
-    tmg399x_gesture_offset_n_init(chip);
-    tmg399x_gesture_offset_s_init(chip);
-    tmg399x_gesture_offset_w_init(chip);
-    tmg399x_gesture_offset_e_init(chip);
-}
-
 static ssize_t tmg399x_prox_init_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t size)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
 	static long value;
-	int ret;
+	int ret,err;
 	ret = kstrtol(buf, 10, &value);
 	if(ret)
 		return -EINVAL;
 	if (value==1)
     {
 		mutex_lock(&chip->lock);
-        tmg399x_prox_uncover_data_init(chip);
-        tmg399x_prox_threshold_init(chip);
-        tmg399x_prox_offset_init(chip);
+    		if((ret=tmg399x_read_cal_value(CAL_THRESHOLD))<0)
+		{
+		SENSOR_LOG_ERROR("tmg399x_prox_init<0\n");
+		err=tmg399x_write_cal_file(CAL_THRESHOLD,0);
+			if(err<0)
+			{
+				SENSOR_LOG_ERROR("ERROR=%s\n",CAL_THRESHOLD);
+				mutex_unlock(&chip->lock);
+				return -EINVAL;
+			}
+		chip->prox_calibrate_times = 5;	
+	       schedule_delayed_work(&p_global_tmg399x_chip->prox_calibrate_work, msecs_to_jiffies(1000));
+		}
+		else if (ret==0){
+		chip->prox_calibrate_times = 5;	
+	       schedule_delayed_work(&p_global_tmg399x_chip->prox_calibrate_work, msecs_to_jiffies(1000));
+		SENSOR_LOG_ERROR("tmg399x_prox_calibrate==1\n");
+		}
+		else if(ret > 0){
+	      chip->prox_manual_calibrate_threshold = ret;
+            chip->params.prox_th_high = ret;
+            chip->params.prox_th_low  = ret - 20;
+		input_report_rel(chip->p_idev, REL_Y, chip->params.prox_th_high);
+		input_report_rel(chip->p_idev, REL_Z, chip->params.prox_th_low);
+		input_sync(chip->p_idev);
+		SENSOR_LOG_ERROR("tmg399x_prox_init> 0\n");
+		}
 		mutex_unlock(&chip->lock);
 	}
-	else 
-    {
+	else {
 		SENSOR_LOG_ERROR("ERROR=tmg399x_prox_init_store\n");
 		return -EINVAL;
 	}
@@ -2897,86 +2486,6 @@ static ssize_t tmg399x_prox_init_store(struct device *dev,
     SENSOR_LOG_ERROR("prox_th_low   = %d\n",chip->params.prox_th_low);
 	return size;
 }
-
-
-
-static ssize_t tmg399x_prox_threshold_init_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	static long value;
-	int ret;
-	ret = kstrtol(buf, 10, &value);
-	if(ret)
-		return -EINVAL;
-	if (value==1)
-    {
-		mutex_lock(&chip->lock);
-        tmg399x_prox_threshold_init(chip);
-		mutex_unlock(&chip->lock);
-	}
-	else 
-    {
-		SENSOR_LOG_ERROR("ERROR=tmg399x_prox_init_store\n");
-		return -EINVAL;
-	}
-    SENSOR_LOG_ERROR("prox_th_high  = %d\n",chip->params.prox_th_high);
-    SENSOR_LOG_ERROR("prox_th_low   = %d\n",chip->params.prox_th_low);
-	return size;
-}
-
-static ssize_t tmg399x_prox_offset_init_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	static long value;
-	int ret;
-	ret = kstrtol(buf, 10, &value);
-	if(ret)
-		return -EINVAL;
-	if (value==1)
-    {
-		mutex_lock(&chip->lock);
-        tmg399x_prox_offset_init(chip);
-		mutex_unlock(&chip->lock);
-	}
-	else 
-    {
-		SENSOR_LOG_ERROR("ERROR=tmg399x_prox_offset_init\n");
-		return -EINVAL;
-	}
-	return size;
-}
-
-
-static ssize_t tmg399x_gesture_offset_init_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	static long value;
-	int ret;
-	ret = kstrtol(buf, 10, &value);
-	if(ret)
-		return -EINVAL;
-	if (value==1)
-    {
-		mutex_lock(&chip->lock);
-        tmg399x_gesture_offset_init(chip);
-		mutex_unlock(&chip->lock);
-	}
-	else 
-    {
-		SENSOR_LOG_ERROR("ERROR=tmg399x_prox_init_store\n");
-		return -EINVAL;
-	}
-    SENSOR_LOG_ERROR("prox_th_high  = %d\n",chip->params.prox_th_high);
-    SENSOR_LOG_ERROR("prox_th_low   = %d\n",chip->params.prox_th_low);
-	return size;
-}
-
 
 static ssize_t tmg399x_prox_offset_ne_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -2999,16 +2508,18 @@ static ssize_t tmg399x_prox_offset_ne_store(struct device *dev,
 	if (ret) {
 		return -EINVAL;
     }
-	if (offset_ne > 255 || offset_ne < 0) {
-		dev_err(&chip->client->dev, "prox offset range [0, 255]\n");
+	if (offset_ne > 127 || offset_ne < -127) {
+		dev_err(&chip->client->dev, "prox offset range [-127, 127]\n");
 		return -EINVAL;
 	}
-    
-    offset = offset_ne;
+	if (offset_ne < 0)
+		offset = 128 - offset_ne;
+	else
+		offset = offset_ne;
 	mutex_lock(&chip->lock);
 	ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_NE, offset);
 	if (!ret) {
-		chip->params.prox_offset_ne = (u8)offset_ne;
+		chip->params.prox_offset_ne = (s8)offset_ne;
 		chip->shadow[TMG399X_PRX_OFFSET_NE] = offset;
 	}
 	mutex_unlock(&chip->lock);
@@ -3036,16 +2547,18 @@ static ssize_t tmg399x_prox_offset_sw_store(struct device *dev,
 	if (ret) {
 		return -EINVAL;
     }
-	if (offset_sw > 255 || offset_sw < 0) {
-		dev_err(&chip->client->dev, "prox offset range [0, 255]\n");
+	if (offset_sw > 127 || offset_sw < -127) {
+		dev_err(&chip->client->dev, "prox offset range [-127, 127]\n");
 		return -EINVAL;
 	}
-	
-	offset = offset_sw;
+	if (offset_sw < 0)
+		offset = 128 - offset_sw;
+	else
+		offset = offset_sw;
 	mutex_lock(&chip->lock);
 	ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_SW, offset);
 	if (!ret) {
-		chip->params.prox_offset_sw = (u8)offset_sw;
+		chip->params.prox_offset_sw = (s8)offset_sw;
 		chip->shadow[TMG399X_PRX_OFFSET_SW] = offset;
 	}
 	mutex_unlock(&chip->lock);
@@ -3063,30 +2576,26 @@ static ssize_t tmg399x_prox_thres_store(struct device *dev,
 	rc = kstrtol(buf, 10, &value);
 	if (rc)
 		return -EINVAL;
-	if (value==1)
-    {
-   		if( (rc=tmg399x_read_cal_value(PATH_CAL_THRESHOLD))<0)
-        {
+	if (value==1){
+   		if( (rc=tmg399x_read_cal_value(CAL_THRESHOLD))<0)
 			return -EINVAL;
-		}
-        else
-        {
-            mutex_lock(&chip->lock);
-            chip->prox_manual_calibrate_threshold = rc;
-            chip->params.prox_th_high = rc;
-            chip->params.prox_th_high = (chip->params.prox_th_high > chip->prox_thres_hi_min) ? chip->params.prox_th_high : chip->prox_thres_hi_min;
-            chip->params.prox_th_high = (chip->params.prox_th_high > PROX_THRESHOLD_HIGH_MIN) ? chip->params.prox_th_high : PROX_THRESHOLD_HIGH_MIN;
-            chip->params.prox_th_low  = rc - PROX_THRESHOLD_DISTANCE;
-            input_report_rel(chip->p_idev, REL_Y, chip->params.prox_th_high);
-            input_report_rel(chip->p_idev, REL_Z, chip->params.prox_th_low);
-            input_sync(chip->p_idev);
-            mutex_unlock(&chip->lock);
-            SENSOR_LOG_ERROR("prox_th_high  = %d\n",chip->params.prox_th_high);
-            SENSOR_LOG_ERROR("prox_th_low   = %d\n",chip->params.prox_th_low);
-		}
+		else{
+			mutex_lock(&chip->lock);
+				if(rc > 30){
+					chip->prox_manual_calibrate_threshold = rc;
+			             chip->params.prox_th_high = rc;
+			             chip->params.prox_th_low  = rc - 20;
+					input_report_rel(chip->p_idev, REL_Y, chip->params.prox_th_high);
+					input_report_rel(chip->p_idev, REL_Z, chip->params.prox_th_low);
+					input_sync(chip->p_idev);
+					mutex_unlock(&chip->lock);
+					SENSOR_LOG_ERROR("prox_th_high  = %d\n",chip->params.prox_th_high);
+			    		SENSOR_LOG_ERROR("prox_th_low   = %d\n",chip->params.prox_th_low);
+					}
+	 
+			}
 	}
-	else
-    {		
+	else{		
 		return -EINVAL;
 	}
 	return size;
@@ -3107,91 +2616,6 @@ static ssize_t tmg399x_prox_thres_show(struct device *dev,
 }
 
 
-static ssize_t tmg399x_gesture_data_safe_range_max_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox offset max range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->gesture_data_safe_range_max = input_data;
-	return size;
-}
-
-
-static ssize_t tmg399x_gesture_data_safe_range_max_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%d\n",chip->gesture_data_safe_range_max);
-}
-
-static ssize_t tmg399x_gesture_data_safe_range_min_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox offset min range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->gesture_data_safe_range_min = input_data;
-	return size;
-}
-
-
-static ssize_t tmg399x_gesture_data_safe_range_min_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%d\n",chip->gesture_data_safe_range_min);
-}
-
-static ssize_t tmg399x_gesture_channel_data_max_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int input_data;
-    int ret;
-	ret = kstrtoint(buf, 10, &input_data);
-	if (ret) {
-		return -EINVAL;
-    }
-	if (input_data > 255 || input_data < 0) {
-		dev_err(&chip->client->dev, "prox offset min range [0, 255]\n");
-		return -EINVAL;
-	}
-    
-    chip->gesture_data_max = input_data;
-	return size;
-}
-
-
-static ssize_t tmg399x_gesture_channel_data_max_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%d\n",chip->gesture_data_max);
-}
-
-
 
 static ssize_t tmg399x_gesture_offset_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -3205,15 +2629,17 @@ static ssize_t tmg399x_gesture_offset_show(struct device *dev,
 
 	mutex_lock(&chip->lock);    
 
+
+        
 	tmg399x_i2c_read(chip, TMG399X_GES_OFFSET_N, &ges_offset_N);
 	tmg399x_i2c_read(chip, TMG399X_GES_OFFSET_S, &ges_offset_S);
 	tmg399x_i2c_read(chip, TMG399X_GES_OFFSET_W, &ges_offset_W);
 	tmg399x_i2c_read(chip, TMG399X_GES_OFFSET_E, &ges_offset_E);
 
-    SENSOR_LOG_INFO("N = %d\n", (unsigned int)ges_offset_N);
-    SENSOR_LOG_INFO("S = %d\n", (unsigned int)ges_offset_S);
-    SENSOR_LOG_INFO("W = %d\n", (unsigned int)ges_offset_W);
-    SENSOR_LOG_INFO("E = %d\n", (unsigned int)ges_offset_E);
+    SENSOR_LOG_INFO("N = %X\n", (unsigned int)ges_offset_N);
+    SENSOR_LOG_INFO("S = %X\n", (unsigned int)ges_offset_S);
+    SENSOR_LOG_INFO("W = %X\n", (unsigned int)ges_offset_W);
+    SENSOR_LOG_INFO("E = %X\n", (unsigned int)ges_offset_E);
 
 	mutex_unlock(&chip->lock);  
 
@@ -3291,16 +2717,12 @@ static ssize_t tmg399x_gesture_data_show(struct device *dev,
     wait_event_interruptible(gesture_drdy_wq, (atomic_read(&gesture_drdy) == 1));
 
     mutex_lock(&chip->lock);
-    
-    if (false == chip->gesture_offset_cal_pending)
-    {
-        ret = tmg399x_get_ges(chip);
-        if (ret>0)
-        {
-            memcpy(buf, &(chip->gesture_data[0]), ret * sizeof(struct tmg399x_ges_raw_data));
-        }
-    }
 
+    ret = tmg399x_get_ges(chip);
+    if (ret>0)
+    {
+        memcpy(buf, &(chip->gesture_data[0]), ret * sizeof(struct tmg399x_ges_raw_data));
+    }
 
     tmg399x_i2c_modify(chip, TMG399X_GES_CFG_4, TMG399X_GES_INT_CLR, TMG399X_GES_INT_CLR);
     
@@ -3320,16 +2742,13 @@ static ssize_t tmg399x_gesture_data_store(struct device *dev,
     struct sGesture_Result Gesture_Result;
 
     memcpy(&Gesture_Result, buf, sizeof(struct sGesture_Result));
-    
-    if (false==chip->gesture_offset_cal_start)
-    {
-        input_report_rel(chip->g_idev, REL_RX,      Gesture_Result.gesture_style);
-        input_report_rel(chip->g_idev, REL_RY,      Gesture_Result.enter_time);
-        input_report_rel(chip->g_idev, REL_RZ,      Gesture_Result.exit_time);
-        input_report_rel(chip->g_idev, REL_HWHEEL,  Gesture_Result.enter_angle);
-        input_report_rel(chip->g_idev, REL_DIAL,    Gesture_Result.exit_angle);
-        input_sync(chip->g_idev);
-    }
+
+    input_report_rel(chip->g_idev, REL_RX,      Gesture_Result.gesture_style);
+    input_report_rel(chip->g_idev, REL_RY,      Gesture_Result.enter_time);
+    input_report_rel(chip->g_idev, REL_RZ,      Gesture_Result.exit_time);
+    input_report_rel(chip->g_idev, REL_HWHEEL,  Gesture_Result.enter_angle);
+    input_report_rel(chip->g_idev, REL_DIAL,    Gesture_Result.exit_angle);
+    input_sync(chip->g_idev);
 
     if (true==chip->ges_debug_enable)
     {
@@ -3383,7 +2802,7 @@ static ssize_t tmg399x_prox_mask_store(struct device *dev,
 	return size;
 }
 
-static ssize_t tmg399x_prox_data_show(struct device *dev,
+static ssize_t tmg399x_device_prx_raw(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
@@ -3393,7 +2812,7 @@ static ssize_t tmg399x_prox_data_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prx_inf.raw);
 }
 
-static ssize_t tmg399x_prox_detected_show(struct device *dev,
+static ssize_t tmg399x_device_prx_detected(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
@@ -3423,7 +2842,7 @@ static ssize_t tmg399x_prox_calibrate_store(struct device *dev, struct device_at
 
 
 
-static ssize_t tmg399x_prox_threshold_cal_start_store(struct device *dev, struct device_attribute *attr, 
+static ssize_t tmg399x_prox_calibrate_start_store(struct device *dev, struct device_attribute *attr, 
                                             const char *buf, size_t size)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
@@ -3438,148 +2857,24 @@ static ssize_t tmg399x_prox_threshold_cal_start_store(struct device *dev, struct
     mutex_lock(&chip->lock);
     if (recv)
     {
-        chip->prox_threshold_cal_start = true;
+        chip->prox_calibrate_start = true;
         SENSOR_LOG_INFO("enable prox calibrate\n");
     }
     else
     {
-        chip->prox_threshold_cal_start = false;
+        chip->prox_calibrate_start = false;
         SENSOR_LOG_INFO("disable prox calibrate\n");
     }
     mutex_unlock(&chip->lock);
 	return size;
 }
 
-static ssize_t tmg399x_prox_threshold_cal_start_show(struct device *dev,
+static ssize_t tmg399x_prox_calibrate_start_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    SENSOR_LOG_INFO("prox calibrate is %s\n",chip->prox_threshold_cal_start ? "enable" : "disable");
-	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_threshold_cal_start);
-}
-
-static ssize_t tmg399x_prox_offset_cal_start_store(struct device *dev, struct device_attribute *attr, 
-                                            const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	unsigned int recv;
-    int ret = kstrtouint(buf, 10, &recv);
-    if (ret) 
-    {
-        SENSOR_LOG_ERROR("input error\n");
-        return -EINVAL;
-    }
-
-    mutex_lock(&chip->lock);
-    if (recv)
-    {
-        chip->prox_offset_cal_start = true;
-        SENSOR_LOG_INFO("enable prox offset calibrate flag\n");
-    }
-    else
-    {
-        chip->prox_offset_cal_start = false;
-        SENSOR_LOG_INFO("disable prox offset calibrate flag\n");
-    }
-    mutex_unlock(&chip->lock);
-	return size;
-}
-
-static ssize_t tmg399x_prox_offset_cal_start_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    SENSOR_LOG_INFO("prox calibrate is %s\n",chip->prox_offset_cal_start ? "enable" : "disable");
-	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_offset_cal_start);
-}
-
-
-
-static ssize_t tmg399x_prox_offset_cal_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "NE = %d, SW = %d\n",chip->params.prox_offset_ne,chip->params.prox_offset_sw);
-}
-
-static ssize_t tmg399x_prox_offset_cal_store(struct device *dev, struct device_attribute *attr, 
-                                            const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int ret = kstrtouint(buf, 10, &(chip->prox_calibrate_times));
-    if (ret) 
-    {
-        SENSOR_LOG_ERROR("input error\n");
-        return -EINVAL;
-    }
-
-    mutex_lock(&chip->lock);
-    schedule_delayed_work(&chip->prox_offset_cal_work, msecs_to_jiffies(0));
-    mutex_unlock(&chip->lock);
-	return size;
-}
-
-static ssize_t tmg399x_gesture_offset_cal_start_store(struct device *dev, struct device_attribute *attr, 
-                                            const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	unsigned int recv;
-    int ret = kstrtouint(buf, 10, &recv);
-    if (ret) 
-    {
-        SENSOR_LOG_ERROR("input error\n");
-        return -EINVAL;
-    }
-
-    mutex_lock(&chip->lock);
-    if (recv)
-    {
-        chip->gesture_offset_cal_start = true;
-        SENSOR_LOG_INFO("enable gesture offset calibrate flag\n");
-    }
-    else
-    {
-        chip->gesture_offset_cal_start = false;
-        SENSOR_LOG_INFO("disable gesture offset calibrate flag\n");
-    }
-    mutex_unlock(&chip->lock);
-	return size;
-}
-
-static ssize_t tmg399x_gesture_offset_cal_start_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    SENSOR_LOG_INFO("prox calibrate is %s\n",chip->gesture_offset_cal_start ? "enable" : "disable");
-	return snprintf(buf, PAGE_SIZE, "%d\n", chip->gesture_offset_cal_start);
-}
-
-
-static ssize_t tmg399x_gesture_offset_cal_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "N = %d, S = %d, W = %d, E = %d\n",chip->params.ges_offset_n,
-                                                                       chip->params.ges_offset_s,
-                                                                       chip->params.ges_offset_w,
-                                                                       chip->params.ges_offset_e);
-}
-
-static ssize_t tmg399x_gesture_offset_cal_store(struct device *dev, struct device_attribute *attr, 
-                                            const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    int ret = kstrtouint(buf, 10, &(chip->prox_calibrate_times));
-    if (ret) 
-    {
-        SENSOR_LOG_ERROR("input error\n");
-        return -EINVAL;
-    }
-
-    mutex_lock(&chip->lock);
-    schedule_delayed_work(&chip->gesture_offset_cal_work, msecs_to_jiffies(0));
-    mutex_unlock(&chip->lock);
-	return size;
+    SENSOR_LOG_INFO("prox calibrate is %s\n",chip->prox_calibrate_start ? "enable" : "disable");
+	return snprintf(buf, PAGE_SIZE, "%d\n", chip->prox_calibrate_start);
 }
 
 
@@ -3879,7 +3174,7 @@ static ssize_t tmg399x_get_reg_data(struct device *dev,
             i2c_smbus_write_byte(p_global_tmg399x_chip->client, i);
             SENSOR_LOG_ERROR("reg[0x%02X] = 0x%02X",i,i2c_smbus_read_byte(p_global_tmg399x_chip->client));
         }
-    }
+    }   
     else
     {
         i2c_smbus_write_byte(p_global_tmg399x_chip->client, reg_addr);
@@ -3891,28 +3186,6 @@ static ssize_t tmg399x_get_reg_data(struct device *dev,
 	return strlen(buf);
 }
 
-
-static ssize_t tmg399x_dump_show(struct device *dev,
-		struct device_attribute *attr,	char *buf)
-{
-    int i;
-
-    mutex_lock(&p_global_tmg399x_chip->lock);
-
-    for (i=0x80; i<=0xFF; i++)
-    {
-        i2c_smbus_write_byte(p_global_tmg399x_chip->client, i);
-        SENSOR_LOG_ERROR("reg[0x%02X] = 0x%02X",i,i2c_smbus_read_byte(p_global_tmg399x_chip->client));
-    }
-
-    SENSOR_LOG_ERROR("als is %s\n",p_global_tmg399x_chip->als_enabled? "on" : "off");
-    SENSOR_LOG_ERROR("prx is %s\n",p_global_tmg399x_chip->prx_enabled? "on" : "off");
-    SENSOR_LOG_ERROR("ges is %s\n",p_global_tmg399x_chip->ges_enabled? "on" : "off");
-
-    mutex_unlock(&p_global_tmg399x_chip->lock);
-
-	return strlen(buf);
-}
 
 static ssize_t tmg399x_irq_show(struct device *dev,
 		struct device_attribute *attr,	char *buf)
@@ -4191,620 +3464,60 @@ static ssize_t tmg399x_prox_threshold_low_store(struct device *dev,
 	return size;
 }
 
-static ssize_t tmg399x_prox_offset_cal_verify_show(struct device *dev,
-		struct device_attribute *attr,	char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    if (NULL != chip)
-    {
-        return sprintf(buf, "%d", chip->prox_offset_cal_verify);
-    }
-    else
-    {
-        sprintf(buf, "chip is NULL\n");
-    }
-	return strlen(buf);
-}
-
-static ssize_t tmg399x_prox_offset_cal_verify_store(struct device *dev,
-		struct device_attribute *attr,	const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    unsigned long val = 0;
-
-    SENSOR_LOG_ERROR("enter\n");
-    if (strict_strtoul(buf, 10, &val))
-    {
-        return -EINVAL;
-    }
-
-	chip->prox_offset_cal_verify = val;
-
-    SENSOR_LOG_ERROR("exit\n");
-	return size;
-}
-
-static ssize_t tmg399x_prox_calibrate_verify_show(struct device *dev,
-		struct device_attribute *attr,	char *buf)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    if (NULL != chip)
-    {
-        return sprintf(buf, "%d", chip->prox_calibrate_verify);
-    }
-    else
-    {
-        sprintf(buf, "chip is NULL\n");
-    }
-	return strlen(buf);
-}
-
-static ssize_t tmg399x_prox_calibrate_verify_store(struct device *dev,
-		struct device_attribute *attr,	const char *buf, size_t size)
-{
-	struct tmg399x_chip *chip = dev_get_drvdata(dev);
-    unsigned long val = 0;
-
-    SENSOR_LOG_ERROR("enter\n");
-    if (strict_strtoul(buf, 10, &val))
-    {
-        return -EINVAL;
-    }
-
-	chip->prox_calibrate_verify = val;
-
-    SENSOR_LOG_ERROR("exit\n");
-	return size;
-}
-
-static int tmg399x_prox_offset_calculate(struct tmg399x_chip *chip, int data, int target)
-{
-    int offset;
-
-    if (data > PROX_OFFSET_CAL_THRESHOLD)
-    {
-        return PROX_OFFSET_CAL_ABILITY_MAX;
-    }
-
-    if (data > target)
-    {
-        offset = (data - target) * 100 / chip->prox_offset_cal_per_bit;
-    }
-    else
-    {
-        offset = (target - data) * 100 / chip->prox_offset_cal_per_bit + 128;
-    }
-
-    return offset;
-}
-
-static void tmg399x_prox_offset_cal_prepare(struct tmg399x_chip *chip)
-{
-    if (false == (chip->prx_enabled))
-    {
-       tmg399x_prox_enable(chip, false);
-       mdelay(50);
-       tmg399x_prox_enable(chip, true);
-    }
-    else
-    {        
-       tmg399x_prox_enable(chip, true);
-    }
-
-    chip->shadow[TMG399X_CONTROL] &= ~(TMG399X_EN_PRX_IRQ);
-    tmg399x_update_enable_reg(chip);
-
-    tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_NE, 0);
-    tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_SW, 0);
-}
-
-static int tmg399x_prox_uncover_data_get(struct tmg399x_chip *chip)
-{
-    int prox_sum = 0;
-    u8  i = 0;
-    u8  j = 0;
-    int ret = 0;
- 
-    //set to get all chanel prox data
-    tmg399x_i2c_write(chip, TMG399X_CONFIG_3, 0x00);
-    mdelay(50);
-    for (i = 0; i < PROX_OFFSET_CAL_BUFFER_SIZE/5; i++) 
-    {
-       tmg399x_read_prox_data(chip);
-       if (chip->shadow[TMG399X_PRX_CHAN] > 0)
-       {
-           prox_sum += chip->shadow[TMG399X_PRX_CHAN];
-           j++;
-       }
-
-       SENSOR_LOG_ERROR("prox data = %d\n",chip->shadow[TMG399X_PRX_CHAN]);
-       mdelay(PROX_OFFSET_CAL_GETDATA_DELAY);
-    }
-   
-    if (0==j)
-    {
-        ret = -1;
-        goto prox_uncover_data_get_error;
-    }
-
-    chip->prox_uncover_data = prox_sum / j;
-    chip->prox_thres_hi_min = chip->prox_uncover_data + PROX_THRESHOLD_SAFE_DISTANCE;
-    chip->prox_thres_hi_min = (chip->prox_thres_hi_min > PROX_THRESHOLD_HIGH_MIN) ? chip->prox_thres_hi_min : PROX_THRESHOLD_HIGH_MIN;
-    SENSOR_LOG_ERROR("prox_uncover_data = %d, prox_thres_hi_min = %d\n",chip->prox_uncover_data,chip->prox_thres_hi_min);    
-    tmg399x_write_cal_file(PATH_PROX_UNCOVER_DATA, chip->prox_uncover_data);
-
-    return 0;
- 
-prox_uncover_data_get_error:
-    return ret;
-}
-
-static int tmg399x_prox_offset_cal_ne_process(struct tmg399x_chip *chip)
-{
-    int prox_sum = 0;
-    int prox_mean = 0;
-    u8  i = 0;
-    u8  j = 0;
-    int ret = 0;
-    int prox_offset_ne = 0;
-    
-    //cal prox NE chanel
-    tmg399x_i2c_write(chip, TMG399X_CONFIG_3, 0x06);
-    mdelay(50);
-    for (i = 0; i < PROX_OFFSET_CAL_BUFFER_SIZE; i++) 
-    {
-       tmg399x_read_prox_data(chip);
-       if (chip->shadow[TMG399X_PRX_CHAN] >= 0)
-       {
-           prox_sum += chip->shadow[TMG399X_PRX_CHAN];
-           j++;
-       }
-
-       SENSOR_LOG_ERROR("prox data NE = %d\n",chip->shadow[TMG399X_PRX_CHAN]);
-       mdelay(PROX_OFFSET_CAL_GETDATA_DELAY);
-    }
-    
-    if (0==j)
-    {
-        ret = -1;
-        goto prox_offset_cal_ne_buffer_error;
-    }
-
-    prox_mean = prox_sum / j;
-    SENSOR_LOG_ERROR("prox data ne mean = %d\n",prox_mean);
-    prox_offset_ne = tmg399x_prox_offset_calculate(chip, prox_mean, PROX_DATA_TARGET);
-
-    if (0==prox_sum)
-    {
-        prox_offset_ne = prox_offset_ne + PROX_OFFSET_CAL_MANUAL_ADD;
-    }
-
-    ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_NE, prox_offset_ne);
-    if (!ret)
-    {
-       chip->params.prox_offset_ne = prox_offset_ne;
-       chip->shadow[TMG399X_PRX_OFFSET_NE] = prox_offset_ne;
-       SENSOR_LOG_ERROR("prox offset NE = %d\n",chip->params.prox_offset_ne);
-       tmg399x_write_cal_file(PATH_PROX_OFFSET_NE, prox_offset_ne);
-    }
-
-    return 0;
-    
-prox_offset_cal_ne_buffer_error:
-    return ret;
-}
-
-static int tmg399x_prox_offset_cal_sw_process(struct tmg399x_chip *chip)
-{
-    int prox_sum = 0;
-    int prox_mean = 0;
-    u8  i = 0;
-    u8  j = 0;
-    int ret = 0;
-    int prox_offset_sw = 0;
-  
-    //cal prox SW chanel
-    tmg399x_i2c_write(chip, TMG399X_CONFIG_3, 0x09);
-    mdelay(50);
-    for (i = 0; i < PROX_OFFSET_CAL_BUFFER_SIZE; i++) 
-    {
-        tmg399x_read_prox_data(chip);   
-
-        if (chip->shadow[TMG399X_PRX_CHAN]>=0)
-        {
-            prox_sum += chip->shadow[TMG399X_PRX_CHAN];
-            j++;
-        }
-
-        SENSOR_LOG_ERROR("prox data SW = %d\n",chip->shadow[TMG399X_PRX_CHAN]);
-        mdelay(PROX_OFFSET_CAL_GETDATA_DELAY);
-    }
-
-    if (0==j)
-    {
-        goto prox_offset_cal_sw_buffer_error;
-    }
-
-    prox_mean = prox_sum / j;
-    SENSOR_LOG_ERROR("prox data sw mean = %d\n",prox_mean);
-    prox_offset_sw = tmg399x_prox_offset_calculate(chip, prox_mean, PROX_DATA_TARGET);
-
-    if (0==prox_sum)
-    {
-        prox_offset_sw = prox_offset_sw + PROX_OFFSET_CAL_MANUAL_ADD;
-    }
-
-	ret = tmg399x_i2c_write(chip, TMG399X_PRX_OFFSET_SW, prox_offset_sw);
-	if (!ret) 
-    {
-		chip->params.prox_offset_sw = prox_offset_sw;
-		chip->shadow[TMG399X_PRX_OFFSET_SW] = prox_offset_sw;
-        SENSOR_LOG_ERROR("prox offset SW = %d\n",chip->params.prox_offset_sw);
-        tmg399x_write_cal_file(PATH_PROX_OFFSET_SW, prox_offset_sw);
-	}
-
-    return 0;
-
-prox_offset_cal_sw_buffer_error:
-    return ret;
-}
-
-static int tmg399x_prox_offset_cal_process(struct tmg399x_chip *chip)
-{
-    int ret;
-    
-    ret = tmg399x_prox_offset_cal_ne_process(chip);
-    if (ret<0)
-    {
-        SENSOR_LOG_ERROR("prox cal ne channel failed\n");
-        goto tmg399x_prox_offset_cal_process_failed;
-    }
-    else
-    {
-        SENSOR_LOG_INFO("prox cal ne channel success\n");
-    }
-
-    ret = tmg399x_prox_offset_cal_sw_process(chip);
-    if (ret<0)
-    {
-        SENSOR_LOG_ERROR("prox cal sw channel failed\n");
-        goto tmg399x_prox_offset_cal_process_failed;
-    }
-    else
-    {
-        SENSOR_LOG_INFO("prox cal sw channel success\n");
-    }
-
-    ret = tmg399x_prox_uncover_data_get(chip);
-    if (ret<0)
-    {
-        SENSOR_LOG_ERROR("prox_uncover_data get failed\n");
-        goto tmg399x_prox_offset_cal_process_failed;
-    }
-    else
-    {
-        SENSOR_LOG_INFO("prox_uncover_data get success\n");
-    }
-
-    return 0;
-
-tmg399x_prox_offset_cal_process_failed:
-    return ret;
-}
-
-static void tmg399x_prox_offset_cal_finish(struct tmg399x_chip *chip)
-{
-    tmg399x_i2c_write(chip, TMG399X_CONFIG_3, 0x00);
-
-    if (true == (chip->prx_enabled))
-    {
-        tmg399x_prox_enable(chip, true);
-    }
-    else
-    {
-        tmg399x_prox_enable(chip, false);
-    }
-}
-
-static int tmg399x_prox_offset_cal(struct tmg399x_chip *chip)
-{
-    int ret = 0;
-    chip->prox_offset_cal_result = false;
-
-    tmg399x_prox_offset_cal_prepare(chip);
-
-    mdelay(50);
-
-    ret = tmg399x_prox_offset_cal_process(chip);
-    
-    if (ret>=0)
-    {
-        chip->gesture_offset_cal_result = true;
-    }
-
-    tmg399x_prox_offset_cal_finish(chip);
-    
-    return ret;
-}
-
-static int tmg399x_gesture_offset_calculate(struct tmg399x_chip *chip, int data, int target)
-{
-    int offset;
-
-    if (data > GESTURE_OFFSET_CAL_THRESHOLD)
-    {
-        return GESTURE_OFFSET_CAL_ABILITY_MAX;
-    }
-
-    if (data > target)
-    {
-        offset = (data - target) * 100 / chip->gesture_offset_cal_per_bit;
-    }
-    else
-    {
-        offset = (target - data) * 120 / chip->gesture_offset_cal_per_bit + 128;
-    }
-
-    return offset;
-}
-
-
-static void tmg399x_gesture_offset_cal_prepare(struct tmg399x_chip *chip)
-{
-    if (false == (chip->ges_enabled))
-    {
-        tmg399x_ges_enable(chip, false);
-        mdelay(50);
-        tmg399x_ges_enable(chip, true);
-    }
-    else
-    {   
-        tmg399x_ges_enable(chip, true);
-    }
-
-    chip->light_poll_time = AMS_ALS_POLL_DELAY_SLOW;
-    tmg399x_als_atime_set(AMS_ALS_ATIME_SHORT);
-    chip->shadow[TMG399X_GES_CFG_4] &= (~(TMG399X_GES_EN_IRQ));
-    tmg399x_update_enable_reg(chip);
-
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_N, 0);
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_S, 0);
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_W, 0);
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_E, 0);
-
-    chip->gesture_offset_cal_pending = true;
-}
-
-static int tmg399x_gesture_offset_cal_process(struct tmg399x_chip *chip)
-{
-    int gesture_sum_n = 0;
-    int gesture_sum_s = 0;
-    int gesture_sum_w = 0;
-    int gesture_sum_e = 0;
-
-    int gesture_mean_n = 0;
-    int gesture_mean_s = 0;
-    int gesture_mean_w = 0;
-    int gesture_mean_e = 0;
-
-    int gesture_offset_n = 0;
-    int gesture_offset_s = 0;
-    int gesture_offset_w = 0;
-    int gesture_offset_e = 0;
-
-    u8  i = 0;
-    u8  j = 0;
-    int ret = 0; 
-
-    ret = tmg399x_get_ges(chip);
-
-    for (i = 0; i < GESTURE_OFFSET_CAL_BUFFER_SIZE; i++) 
-    {
-        ret = tmg399x_get_ges(chip);
-        if (((chip->gesture_data[0].north>=0)&&(chip->gesture_data[0].north<=255))&&
-            ((chip->gesture_data[0].south>=0)&&(chip->gesture_data[0].south<=255))&&
-            ((chip->gesture_data[0].west>=0)&&(chip->gesture_data[0].west<=255))&&
-            ((chip->gesture_data[0].east>=0)&&(chip->gesture_data[0].east<=255)))
-        {
-            gesture_sum_n += chip->gesture_data[0].north;
-            gesture_sum_s += chip->gesture_data[0].south;
-            gesture_sum_w += chip->gesture_data[0].west;
-            gesture_sum_e += chip->gesture_data[0].east;
-            j++;
-        }
-
-        SENSOR_LOG_ERROR("gesture data N=%d,S=%d,W=%d,E=%d\n",chip->gesture_data[0].north,
-                                                              chip->gesture_data[0].south,
-                                                              chip->gesture_data[0].west,
-                                                              chip->gesture_data[0].east);
-
-        mdelay(GESTURE_OFFSET_CAL_GETDATA_DELAY);
-    }
-    
-    if (0==j)
-    {
-        ret = -1;
-        goto gesture_offset_cal_failed;
-    }
-
-    gesture_mean_n = gesture_sum_n / j;
-    gesture_mean_s = gesture_sum_s / j;
-    gesture_mean_w = gesture_sum_w / j;
-    gesture_mean_e = gesture_sum_e / j;
-
-    SENSOR_LOG_ERROR("gesture_mean_n = %d\n", gesture_mean_n);
-    SENSOR_LOG_ERROR("gesture_mean_s = %d\n", gesture_mean_s);
-    SENSOR_LOG_ERROR("gesture_mean_w = %d\n", gesture_mean_w);
-    SENSOR_LOG_ERROR("gesture_mean_e = %d\n", gesture_mean_e);
-
-    gesture_offset_n = tmg399x_gesture_offset_calculate(chip, gesture_mean_n, GESTURE_DATA_TARGET);
-    gesture_offset_s = tmg399x_gesture_offset_calculate(chip, gesture_mean_s, GESTURE_DATA_TARGET);
-    gesture_offset_w = tmg399x_gesture_offset_calculate(chip, gesture_mean_w, GESTURE_DATA_TARGET);
-    gesture_offset_e = tmg399x_gesture_offset_calculate(chip, gesture_mean_e, GESTURE_DATA_TARGET);
-
-    if (0==gesture_mean_n)
-    {
-        gesture_offset_n = gesture_offset_n + GESTURE_OFFSET_CAL_MANUAL_ADD;
-    }
-
-    if (0==gesture_mean_s)
-    {
-        gesture_offset_s = gesture_offset_s + GESTURE_OFFSET_CAL_MANUAL_ADD;
-    }
-
-    if (0==gesture_mean_w)
-    {
-        gesture_offset_w = gesture_offset_w + GESTURE_OFFSET_CAL_MANUAL_ADD;
-    }
-
-    if (0==gesture_mean_e)
-    {
-        gesture_offset_e = gesture_offset_e + GESTURE_OFFSET_CAL_MANUAL_ADD;
-    }
-
-    chip->params.ges_offset_n = gesture_offset_n;
-    chip->pdata->parameters.ges_offset_n = gesture_offset_n;
-    chip->shadow[TMG399X_GES_OFFSET_N] = gesture_offset_n;
-
-    chip->params.ges_offset_s = gesture_offset_s;
-    chip->pdata->parameters.ges_offset_s = gesture_offset_s;
-    chip->shadow[TMG399X_GES_OFFSET_S] = gesture_offset_s;
-
-    chip->params.ges_offset_w = gesture_offset_w;
-    chip->pdata->parameters.ges_offset_w = gesture_offset_w;
-    chip->shadow[TMG399X_GES_OFFSET_W] = gesture_offset_w;
-
-    chip->params.ges_offset_e = gesture_offset_e;
-    chip->pdata->parameters.ges_offset_e = gesture_offset_e;
-    chip->shadow[TMG399X_GES_OFFSET_E] = gesture_offset_e;
-
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_N, (u8)(gesture_offset_n & 0xff));
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_S, (u8)(gesture_offset_s & 0xff));
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_W, (u8)(gesture_offset_w & 0xff));
-    tmg399x_i2c_write(chip, TMG399X_GES_OFFSET_E, (u8)(gesture_offset_e & 0xff));
-
-    SENSOR_LOG_ERROR("Set N offset = %d\n", gesture_offset_n);
-    SENSOR_LOG_ERROR("Set S offset = %d\n", gesture_offset_s);
-    SENSOR_LOG_ERROR("Set W offset = %d\n", gesture_offset_w);
-    SENSOR_LOG_ERROR("Set E offset = %d\n", gesture_offset_e);
-
-    tmg399x_write_cal_file(PATH_GESTURE_OFFSET_N, (u8)(gesture_offset_n & 0xff));
-    tmg399x_write_cal_file(PATH_GESTURE_OFFSET_S, (u8)(gesture_offset_s & 0xff));
-    tmg399x_write_cal_file(PATH_GESTURE_OFFSET_W, (u8)(gesture_offset_w & 0xff));
-    tmg399x_write_cal_file(PATH_GESTURE_OFFSET_E, (u8)(gesture_offset_e & 0xff));
-
-    return 0;
-
-gesture_offset_cal_failed:
-    return ret;
-}
-
-static void tmg399x_gesture_offset_cal_finish(struct tmg399x_chip *chip)
-{
-    if (true == (chip->ges_enabled))
-    {
-        tmg399x_ges_enable(chip, false);
-        tmg399x_ges_enable(chip, true);
-    }
-    else
-    {   
-        tmg399x_ges_enable(chip, false);
-    }
-
-    chip->gesture_offset_cal_pending = false;
-}
-
-static int tmg399x_gesture_offset_cal(struct tmg399x_chip *chip)
-{
-    int ret = 0;
-    chip->gesture_offset_cal_result = false;
-
-    tmg399x_gesture_offset_cal_prepare(chip);
-    
-    mdelay(50);
-
-    ret = tmg399x_gesture_offset_cal_process(chip);
-
-    if (ret>=0)
-    {
-        chip->gesture_offset_cal_result = true;
-    }
-
-    tmg399x_gesture_offset_cal_finish(chip);
-    
-    return ret;
-}
-
 
 
 static struct device_attribute attrs_prox[] = {
-    __ATTR(chip_name,                       0640,   tmg399x_chip_name_show,                 NULL), 
-	__ATTR(enable,                          0640,   tmg399x_prox_enable_show,               tmg399x_prox_enable_store),
-    __ATTR(prox_init,                       0640,   NULL,                                   tmg399x_prox_init_store),
-	__ATTR(prox_threshold_init,             0640,   NULL,                                   tmg399x_prox_threshold_init_store),
-    __ATTR(prox_offset_init,                0640,   NULL,                                   tmg399x_prox_offset_init_store),
-	__ATTR(prox_persist,                    0640,   tmg399x_prox_persist_show,              tmg399x_prox_persist_store),
-	__ATTR(prx_pulse_length,                0640,   tmg399x_prox_pulse_len_show,            tmg399x_prox_pulse_len_store),
-	__ATTR(prox_pulse_count,                0640,   tmg399x_prox_pulse_cnt_show,	        tmg399x_prox_pulse_cnt_store),
-	__ATTR(prox_gain,                       0640,   tmg399x_prox_gain_show,	                tmg399x_prox_gain_store),
-	__ATTR(prox_led_drive,                  0640,   tmg399x_prox_led_drive_show,            tmg399x_prox_led_drive_store),
-	__ATTR(prox_led_boost,                  0640,   tmg399x_led_boost_show,	                tmg399x_led_boost_store),
-	__ATTR(prox_sat_irq_en,                 0640,   tmg399x_sat_irq_en_show,                tmg399x_sat_irq_en_store),
-	__ATTR(prox_offset_ne,                  0640,   tmg399x_prox_offset_ne_show,            tmg399x_prox_offset_ne_store),
-	__ATTR(prox_offset_sw,                  0640,   tmg399x_prox_offset_sw_show,            tmg399x_prox_offset_sw_store),
-	__ATTR(prox_mask,                       0640,   tmg399x_prox_mask_show,                 tmg399x_prox_mask_store),
-	__ATTR(prox_data,                       0640,   tmg399x_prox_data_show,                 NULL),
-	__ATTR(prox_detect,                     0640,   tmg399x_prox_detected_show,             NULL),
-    __ATTR(prox_calibrate,                  0640,   NULL,                                   tmg399x_prox_calibrate_store), 
-    __ATTR(prox_threshold_cal_start,        0640,   tmg399x_prox_threshold_cal_start_show,  tmg399x_prox_threshold_cal_start_store),
-    __ATTR(prox_calibrate_start,            0640,   tmg399x_prox_threshold_cal_start_show,  tmg399x_prox_threshold_cal_start_store),
-    __ATTR(prox_offset_cal_start,           0640,   tmg399x_prox_offset_cal_start_show,     tmg399x_prox_offset_cal_start_store),
-    __ATTR(prox_offset_cal,                 0640,   tmg399x_prox_offset_cal_show,           tmg399x_prox_offset_cal_store),
-    __ATTR(prox_calibrate_result,           0640,   tmg399x_prox_calibrate_result_show,     NULL), 
-    __ATTR(prox_thres,                      0640,   tmg399x_prox_thres_show,                tmg399x_prox_thres_store),
-    __ATTR(prox_debug,                      0640,   tmg399x_prox_debug_show,                tmg399x_prox_debug_store),
-    __ATTR(prox_phone_is_sleep,             0640,   tmg399x_phone_is_sleep_show,            tmg399x_phone_is_sleep_store),
-    __ATTR(prox_wakelock,                   0640,   tmg399x_prox_wakelock_show,             tmg399x_prox_wakelock_store),
-    __ATTR(prox_thres_max,                  0644,   tmg399x_prox_thres_hi_max,              NULL), 
-    __ATTR(prox_thres_min,                  0644,   tmg399x_prox_thres_hi_min,              NULL),
-    __ATTR(prox_data_safe_range_max,        0644,   tmg399x_prox_data_safa_range_max_show,  tmg399x_prox_data_safa_range_max_store), 
-    __ATTR(prox_data_safe_range_min,        0644,   tmg399x_prox_data_safa_range_min_show,  tmg399x_prox_data_safa_range_min_store), 
-    __ATTR(prox_data_max,                   0640,   tmg399x_prox_data_max_show,             tmg399x_prox_data_max_store),
-    __ATTR(prox_manual_calibrate_threshold, 0644,   tmg399x_manual_calibrate_threshold,     NULL), 
-    __ATTR(tmg_irq,                         0640,   tmg399x_irq_show,                       tmg399x_irq_store),
-    __ATTR(tmg_reg_addr,                    0640,   tmg399x_get_reg_addr,                   tmg399x_set_reg_addr),
-    __ATTR(tmg_reg_data,                    0640,   tmg399x_get_reg_data,                   tmg399x_set_reg_data),
-    __ATTR(tmg_clear_irq,                   0640,   NULL,                                   tmg399x_irq_clear),
-    __ATTR(prox_threshold_high,             0644,   tmg399x_prox_threshold_high_show,       tmg399x_prox_threshold_high_store),
-    __ATTR(prox_threshold_low,              0644,   tmg399x_prox_threshold_low_show,        tmg399x_prox_threshold_low_store),
-    __ATTR(prox_offset_cal_verify,          0644,   tmg399x_prox_offset_cal_verify_show,    tmg399x_prox_offset_cal_verify_store),
-    __ATTR(prox_calibrate_verify,           0644,   tmg399x_prox_calibrate_verify_show,     tmg399x_prox_calibrate_verify_store),
-    __ATTR(chip_dump,                       0644,   tmg399x_dump_show,                      NULL),
+    __ATTR(chip_name,                       0640,   tmg399x_chip_name_show,              NULL), 
+	__ATTR(enable,                          0640,   tmg399x_prox_enable_show,            tmg399x_prox_enable_store),
+	__ATTR(prox_init,                       0640,   NULL,                                tmg399x_prox_init_store),
+	__ATTR(prox_persist,                    0640,   tmg399x_prox_persist_show,           tmg399x_prox_persist_store),
+	__ATTR(prx_pulse_length,                0640,   tmg399x_prox_pulse_len_show,         tmg399x_prox_pulse_len_store),
+	__ATTR(prox_pulse_count,                0640,   tmg399x_prox_pulse_cnt_show,	     tmg399x_prox_pulse_cnt_store),
+	__ATTR(prox_gain,                       0640,   tmg399x_prox_gain_show,	             tmg399x_prox_gain_store),
+	__ATTR(prox_led_drive,                  0640,   tmg399x_prox_led_drive_show,         tmg399x_prox_led_drive_store),
+	__ATTR(prox_led_boost,                  0640,   tmg399x_led_boost_show,	             tmg399x_led_boost_store),
+	__ATTR(prox_sat_irq_en,                 0640,   tmg399x_sat_irq_en_show,             tmg399x_sat_irq_en_store),
+	__ATTR(prox_offset_ne,                  0640,   tmg399x_prox_offset_ne_show,         tmg399x_prox_offset_ne_store),
+	__ATTR(prox_offset_sw,                  0640,   tmg399x_prox_offset_sw_show,         tmg399x_prox_offset_sw_store),
+	__ATTR(prox_mask,                       0640,   tmg399x_prox_mask_show,              tmg399x_prox_mask_store),
+	__ATTR(prox_raw,                        0640,   tmg399x_device_prx_raw,              NULL),
+	__ATTR(prox_detect,                     0640,   tmg399x_device_prx_detected,         NULL),
+    __ATTR(prox_calibrate,                  0640,   NULL,                                tmg399x_prox_calibrate_store), 
+    __ATTR(prox_calibrate_start,            0640,   tmg399x_prox_calibrate_start_show,   tmg399x_prox_calibrate_start_store),
+    __ATTR(prox_calibrate_result,           0640,   tmg399x_prox_calibrate_result_show,  NULL), 
+    __ATTR(prox_thres,                      0640,   tmg399x_prox_thres_show,             tmg399x_prox_thres_store),
+    __ATTR(prox_debug,                      0640,   tmg399x_prox_debug_show,             tmg399x_prox_debug_store),
+    __ATTR(prox_phone_is_sleep,             0640,   tmg399x_phone_is_sleep_show,         tmg399x_phone_is_sleep_store),
+    __ATTR(prox_wakelock,                   0640,   tmg399x_prox_wakelock_show,          tmg399x_prox_wakelock_store),
+    __ATTR(prox_thres_max,                  0644,   tmg399x_prox_thres_hi_max,           NULL), 
+    __ATTR(prox_thres_min,                  0644,   tmg399x_prox_thres_lo_min,           NULL), 
+    __ATTR(prox_data_max,                   0640,   tmg399x_prox_data_max,               NULL),
+    __ATTR(prox_manual_calibrate_threshold, 0644,   tmg399x_manual_calibrate_threshold,               NULL), 
+    __ATTR(tmg_irq,                         0640,   tmg399x_irq_show,                    tmg399x_irq_store),
+    __ATTR(tmg_reg_addr,                    0640,   tmg399x_get_reg_addr,                tmg399x_set_reg_addr),
+    __ATTR(tmg_reg_data,                    0640,   tmg399x_get_reg_data,                tmg399x_set_reg_data),
+    __ATTR(tmg_clear_irq,                   0640,   NULL,                                tmg399x_irq_clear),
+    __ATTR(prox_threshold_high,             0644,   tmg399x_prox_threshold_high_show,    tmg399x_prox_threshold_high_store),
+    __ATTR(prox_threshold_low,              0644,   tmg399x_prox_threshold_low_show,     tmg399x_prox_threshold_low_store),
 };
 
 
 static struct device_attribute attrs_gesture[] = {
-    __ATTR(chip_name,                   0640,   tmg399x_chip_name_show,                     NULL),
-	__ATTR(enable,                      0640,   tmg399x_ges_enable_show,                    tmg399x_ges_enable_store),
-    __ATTR(gesture_offset_init,         0640,   NULL,                                       tmg399x_gesture_offset_init_store),
-	__ATTR(gesture_pulse_length,        0640,   tmg399x_ges_pulse_len_show,                 tmg399x_ges_pulse_len_store),
-	__ATTR(gesture_pulse_count,         0640,   tmg399x_ges_pulse_cnt_show,	                tmg399x_ges_pulse_cnt_store),
-	__ATTR(gesture_gain,                0640,   tmg399x_ges_gain_show,	                    tmg399x_ges_gain_store),
-    __ATTR(gesture_data,                0640,   tmg399x_gesture_data_show,                  tmg399x_gesture_data_store),
-    __ATTR(gesture_offset,              0640,   tmg399x_gesture_offset_show,                tmg399x_gesture_offset_store),
-    __ATTR(gesture_channel_data_max,    0640,   tmg399x_gesture_channel_data_max_show,      tmg399x_gesture_channel_data_max_store),
-    __ATTR(gesture_data_safe_range_max, 0640,   tmg399x_gesture_data_safe_range_max_show,   tmg399x_gesture_data_safe_range_max_store),
-    __ATTR(gesture_data_safe_range_min, 0640,   tmg399x_gesture_data_safe_range_min_show,   tmg399x_gesture_data_safe_range_min_store),
-    __ATTR(gesture_offset_cal,          0640,   tmg399x_gesture_offset_cal_show,            tmg399x_gesture_offset_cal_store),
-    __ATTR(gesture_offset_cal_start,    0640,   tmg399x_gesture_offset_cal_start_show,      tmg399x_gesture_offset_cal_start_store),
-    __ATTR(gesture_enter_thres,         0640,   tmg399x_get_ges_enter_thres,                tmg399x_set_ges_enter_thres),
-    __ATTR(gesture_exit_thres,          0640,   tmg399x_get_ges_exit_thres,                 tmg399x_set_ges_exit_thres),
-    __ATTR(gesture_start_flag,          0640,   NULL,                                       tmg399x_set_ges_start),
-    __ATTR(gesture_debug,               0640,   tmg399x_ges_debug_show,                     tmg399x_ges_debug_store),
-    __ATTR(led_boost,                   0640,   tmg399x_led_boost_show,                     tmg399x_led_boost_store),
-    __ATTR(reg_addr,                    0640,   tmg399x_get_reg_addr,                       tmg399x_set_reg_addr),
-    __ATTR(reg_data,                    0640,   tmg399x_get_reg_data,                       tmg399x_set_reg_data),
-    __ATTR(clear_irq,                   0640,   NULL,                                       tmg399x_irq_clear),
+    __ATTR(chip_name,                   0640,   tmg399x_chip_name_show,              NULL),
+	__ATTR(enable,                      0640,   tmg399x_ges_enable_show,             tmg399x_ges_enable_store),
+	__ATTR(gesture_pulse_length,        0640,   tmg399x_ges_pulse_len_show,          tmg399x_ges_pulse_len_store),
+	__ATTR(gesture_pulse_count,         0640,   tmg399x_ges_pulse_cnt_show,	         tmg399x_ges_pulse_cnt_store),
+	__ATTR(gesture_gain,                0640,   tmg399x_ges_gain_show,	             tmg399x_ges_gain_store),
+    __ATTR(gesture_data,                0640,   tmg399x_gesture_data_show,           tmg399x_gesture_data_store),
+    __ATTR(gesture_offset,              0640,   tmg399x_gesture_offset_show,         tmg399x_gesture_offset_store),
+    __ATTR(gesture_enter_thres,         0640,   tmg399x_get_ges_enter_thres,         tmg399x_set_ges_enter_thres),
+    __ATTR(gesture_exit_thres,          0640,   tmg399x_get_ges_exit_thres,          tmg399x_set_ges_exit_thres),
+    __ATTR(gesture_start_flag,          0640,   NULL,                                tmg399x_set_ges_start),
+    __ATTR(gesture_debug,               0640,   tmg399x_ges_debug_show,              tmg399x_ges_debug_store),
+    __ATTR(led_boost,                   0640,   tmg399x_led_boost_show,              tmg399x_led_boost_store),
+    __ATTR(reg_addr,                    0640,   tmg399x_get_reg_addr,                tmg399x_set_reg_addr),
+    __ATTR(reg_data,                    0640,   tmg399x_get_reg_data,                tmg399x_set_reg_data),
+    __ATTR(clear_irq,                   0640,   NULL,                                tmg399x_irq_clear),
 };
 
 
@@ -4888,9 +3601,10 @@ int tmg399x_write_cal_file(char *file_path,unsigned int value)
     if (NULL==file_path)
     {
         SENSOR_LOG_ERROR("file_path is NULL\n");
+      
     }
-    memset(write_buf, 0, sizeof(write_buf));
-    sprintf(write_buf, "%d\n", value);
+       memset(write_buf, 0, sizeof(write_buf));
+      sprintf(write_buf, "%d\n", value);
     file_p = filp_open(file_path, O_CREAT|O_RDWR , 0665);
     if (IS_ERR(file_p))
     {
@@ -5000,14 +3714,14 @@ static void tmg399x_report_prox(struct tmg399x_chip *chip)
 {
 	if (chip->p_idev) 
     {
-        if (chip->prox_threshold_cal_start || chip->prox_offset_cal_start)
+        SENSOR_LOG_INFO("data = %d, high = %d, low = %d",chip->prx_inf.raw,chip->params.prox_th_high, chip->params.prox_th_low);
+        if (chip->prox_calibrate_start)
         {
-            input_report_rel(chip->p_idev, REL_MISC, (chip->prx_inf.raw>0)? chip->prx_inf.raw : 1);
+            input_report_rel(chip->p_idev, REL_MISC, chip->prx_inf.raw);
         }
         else
         {
-            input_report_rel(chip->p_idev, REL_X, (chip->prx_inf.raw>0)? chip->prx_inf.raw : 1);
-            SENSOR_LOG_INFO("data = %d, high = %d, low = %d",chip->prx_inf.raw,chip->params.prox_th_high, chip->params.prox_th_low);
+            input_report_rel(chip->p_idev, REL_X, chip->prx_inf.raw);
         }
 		input_sync(chip->p_idev);
 	}
@@ -5092,6 +3806,7 @@ static int tmg399x_set_segment_table(struct tmg399x_chip *chip,
 
 	if (!chip->segment) 
     {
+		dev_info(dev, "%s: allocating segment table\n", __func__);
 		chip->segment = kzalloc(sizeof(*chip->segment) *
 				chip->seg_num_max, GFP_KERNEL);
 		if (!chip->segment) {
@@ -5106,21 +3821,25 @@ static int tmg399x_set_segment_table(struct tmg399x_chip *chip,
 	} else {
 		chip->segment_num = seg_num;
 	}
-	memcpy(chip->segment, segment, chip->segment_num * sizeof(*chip->segment));
+	memcpy(chip->segment, segment,
+			chip->segment_num * sizeof(*chip->segment));
+	dev_info(dev, "%s: %d segment requested, %d applied\n", __func__,
+			seg_num, chip->seg_num_max);
 	for (i = 0; i < chip->segment_num; i++)
-    {
-        SENSOR_LOG_INFO("seg %d: d_factor %d, r_coef %d, g_coef %d, b_coef %d, ct_coef %d ct_offset %d\n",
+		dev_info(dev,
+		"seg %d: d_factor %d, r_coef %d, g_coef %d, b_coef %d, ct_coef %d ct_offset %d\n",
 		i, chip->segment[i].d_factor, chip->segment[i].r_coef,
 		chip->segment[i].g_coef, chip->segment[i].b_coef,
 		chip->segment[i].ct_coef, chip->segment[i].ct_offset);
-	}
-    return 0;
+	return 0;
 }
 
 static void tmg399x_set_defaults(struct tmg399x_chip *chip)
 {
+	struct device *dev = &chip->client->dev;
+
 	if (chip->pdata) {
-		SENSOR_LOG_INFO("Loading pltform data\n");
+		dev_info(dev, "%s: Loading pltform data\n", __func__);
 		chip->params.als_time = chip->pdata->parameters.als_time;
 		chip->params.als_gain = chip->pdata->parameters.als_gain;
 		chip->params.als_deltaP = chip->pdata->parameters.als_deltaP;
@@ -5137,7 +3856,7 @@ static void tmg399x_set_defaults(struct tmg399x_chip *chip)
 		chip->params.prox_offset_sw = chip->pdata->parameters.prox_offset_sw;
 		chip->params.als_prox_cfg3 = chip->pdata->parameters.als_prox_cfg3;
 	} else {
-		SENSOR_LOG_INFO("use defaults data\n");
+		dev_info(dev, "%s: use defaults\n", __func__);
 		chip->params.als_time = param_default.als_time;
 		chip->params.als_gain = param_default.als_gain;
 		chip->params.als_deltaP = param_default.als_deltaP;
@@ -5257,9 +3976,6 @@ static void tmg399x_als_poll_work_func(struct work_struct *work)
                                                                 p_global_tmg399x_chip->als_inf.cct);
     }
 
-
-    p_global_tmg399x_chip->als_inf.lux = p_global_tmg399x_chip->als_inf.lux * p_global_tmg399x_chip->light_percent / 100;
-
     if (p_global_tmg399x_chip->als_inf.lux>10000)
     {
         p_global_tmg399x_chip->als_inf.lux = 10000;
@@ -5276,20 +3992,9 @@ static void tmg399x_als_poll_work_func(struct work_struct *work)
     mutex_unlock(&p_global_tmg399x_chip->lock);
 }
 
-static void tmg399x_prox_thres_cal_work_func(struct work_struct *work)
+static void tmg399x_prox_calibrate_work_func(struct work_struct *work)
 {
     tmg399x_prox_calibrate(p_global_tmg399x_chip);
-}
-
-static void tmg399x_prox_offset_cal_work_func(struct work_struct *work)
-{
-    tmg399x_prox_offset_cal(p_global_tmg399x_chip);
-}
-
-
-static void tmg399x_gesture_offset_cal_work_func(struct work_struct *work)
-{
-    tmg399x_gesture_offset_cal(p_global_tmg399x_chip);
 }
 
 static enum hrtimer_restart tmg399x_unwakelock_work_func(struct hrtimer *timer)
@@ -5301,55 +4006,16 @@ static enum hrtimer_restart tmg399x_unwakelock_work_func(struct hrtimer *timer)
 
    return HRTIMER_NORESTART;
 }
-
-
-static int tmg399x_id_detect(struct tmg399x_chip *chip)
-{
-    int ret = 0, i = 0;
-	u8 id, rev;
-    
-    ret = tmg399x_get_id(chip, &id, &rev);
-    if (ret < 0)
-    {
-        dev_err(&chip->client->dev,"%s: failed to get tmg399x id\n",__func__);
-    }
-
-    for (i = 0; i < ARRAY_SIZE(tmg399x_ids); i++) 
-    {
-        if (id == tmg399x_ids[i])
-        {
-            if (i>=1)
-            {
-                i = 1;
-            }
-            break;
-        }
-    }
-    
-    if (i < ARRAY_SIZE(tmg399x_names)) 
-    {
-        SENSOR_LOG_INFO("chip is %s, rev is %02x, id is %02x\n",tmg399x_names[i], rev, id);
-        chip->device_index = i;
-        return 0;
-    } 
-    else 
-    {
-        goto tmg399x_id_detect_error;
-    }
-
-tmg399x_id_detect_error:
-    SENSOR_LOG_ERROR("not supported rev is %02x, id is %02x\n", rev, id);
-    return -EOPNOTSUPP;
-}
-
 static int __devinit tmg399x_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 {
-	int ret;
+	int i, ret;
+	u8 id, rev;
 	struct device *dev = &client->dev;
 	static struct tmg399x_chip *chip;
 	struct tmg399x_i2c_platform_data *pdata = &tmg399x_data;
-
 	bool powered = 0;
+    SENSOR_LOG_INFO("Prob Start\n");
+
     dev->platform_data = &tmg399x_data;
 
 	if (!i2c_check_functionality(client->adapter,
@@ -5390,21 +4056,13 @@ static int __devinit tmg399x_probe(struct i2c_client *client, const struct i2c_d
 		goto malloc_failed;
 	}
 
-	chip->client = client;
-	chip->pdata = pdata;
-	i2c_set_clientdata(client, chip);
-
-    ret = tmg399x_id_detect(chip);
-    if (ret < 0)
-    {
-        goto id_detect_failed;
-    }
-
-    tmg399x_parse_dt(chip);
-
     tmg399x_chip_data_init(chip);
 
     p_global_tmg399x_chip = chip;
+
+	chip->client = client;
+	chip->pdata = pdata;
+	i2c_set_clientdata(client, chip);
 
 	chip->seg_num_max = chip->pdata->segment_num ?
 			chip->pdata->segment_num : ARRAY_SIZE(segment_default);
@@ -5417,17 +4075,20 @@ static int __devinit tmg399x_probe(struct i2c_client *client, const struct i2c_d
 	if (ret)
 		goto set_segment_failed;
 
-    /*
 	ret = tmg399x_get_id(chip, &id, &rev);
 	if (ret < 0)
 		dev_err(&chip->client->dev,
 			"%s: failed to get tmg399x id\n",
 			__func__);
 
+	dev_info(dev, "%s: device id:%02x device rev:%02x\n", __func__,
+				id, rev);
+
 	for (i = 0; i < ARRAY_SIZE(tmg399x_ids); i++) 
     {
 		if (id == tmg399x_ids[i])
         {
+            SENSOR_LOG_INFO("id = %d\n",id);
             if (i>=1)
             {
                 i = 1;
@@ -5438,16 +4099,15 @@ static int __devinit tmg399x_probe(struct i2c_client *client, const struct i2c_d
 
 	if (i < ARRAY_SIZE(tmg399x_names)) 
     {
-		SENSOR_LOG_INFO("chip is %s, rev is %02x, id is %02x\n",tmg399x_names[i], rev, id);
+		dev_info(dev, "%s: '%s rev. %d' detected\n", __func__, tmg399x_names[i], rev);
 		chip->device_index = i;
 	} 
     else 
     {
-		SENSOR_LOG_INFO("not supported rev is %02x, id is %02x\n", rev, id);
+		dev_err(dev, "%s: not supported chip id\n", __func__);
 		ret = -EOPNOTSUPP;
 		goto id_failed;
 	}
-    */
 
 	mutex_init(&chip->lock);
     wake_lock_init(&chip->proximity_wakelock.lock, WAKE_LOCK_SUSPEND, (chip->proximity_wakelock).name);
@@ -5489,7 +4149,8 @@ static int __devinit tmg399x_probe(struct i2c_client *client, const struct i2c_d
     set_bit(REL_HWHEEL, chip->p_idev->relbit);  //gesture enter angle
     set_bit(REL_DIAL,   chip->p_idev->relbit);  //gesture exit angle
 
-     
+
+  
 	dev_set_drvdata(&chip->p_idev->dev, chip);
 	ret = input_register_device(chip->p_idev);
 	if (ret) {
@@ -5557,11 +4218,6 @@ bypass_als_idev:
     set_bit(REL_HWHEEL, chip->g_idev->relbit);  //gesture enter angle
     set_bit(REL_DIAL,   chip->g_idev->relbit);  //gesture exit  angle
 
-    set_bit(REL_X,      chip->g_idev->relbit);  //gesture chanle data n
-    set_bit(REL_Y,      chip->g_idev->relbit);  //gesture chanle data s
-    set_bit(REL_Z,      chip->g_idev->relbit);  //gesture chanle data w
-    set_bit(REL_WHEEL,  chip->g_idev->relbit);  //gesture chanle data e  
-
 
 	dev_set_drvdata(&chip->g_idev->dev, chip);
 	ret = input_register_device(chip->g_idev);
@@ -5577,38 +4233,38 @@ bypass_als_idev:
 		goto input_g_sysfs_failed;
 bypass_ges_idev:
 
-    ret = gpio_request(chip->irq_pin_num, "irq-als-prox-ges");
+    ret = gpio_request(TMG399X_INT_PIN, "tmg3993");
 	if (ret)    
     {
-        SENSOR_LOG_INFO("gpio %d is busy and then to free it\n",chip->irq_pin_num);
+        SENSOR_LOG_INFO("gpio %d is busy and then to free it\n",TMG399X_INT_PIN);
         
-        gpio_free(chip->irq_pin_num);
-        ret = gpio_request(chip->irq_pin_num, "tmg3993");
+        gpio_free(TMG399X_INT_PIN);
+        ret = gpio_request(TMG399X_INT_PIN, "tmg3993");
         if (ret) 
         {
-            SENSOR_LOG_INFO("gpio %d is busy and then to free it\n",chip->irq_pin_num);
+            SENSOR_LOG_INFO("gpio %d is busy and then to free it\n",TMG399X_INT_PIN);
             return ret;
         }
 	}
     
-    ret = gpio_tlmm_config(GPIO_CFG(chip->irq_pin_num, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+    ret = gpio_tlmm_config(GPIO_CFG(TMG399X_INT_PIN, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
 
-    client->irq = gpio_to_irq(chip->irq_pin_num);///ztemt
+    client->irq = gpio_to_irq(TMG399X_INT_PIN);///ztemt
     SENSOR_LOG_INFO("client->irq = %d\n",client->irq);
 	INIT_WORK(&chip->irq_work, tmg399x_irq_work);
-	ret = request_threaded_irq(client->irq, NULL, &tmg399x_irq, IRQF_TRIGGER_FALLING | IRQF_ONESHOT, "als-prox-ges", chip);
+	ret = request_threaded_irq(client->irq, NULL, &tmg399x_irq, IRQF_TRIGGER_FALLING | IRQF_ONESHOT, "tmg399x", chip);
 	if (ret) {
 		dev_info(dev, "Failed to request irq %d\n", client->irq);
 		goto irq_register_fail;
 	}
 
     INIT_DELAYED_WORK(&chip->als_poll_work, tmg399x_als_poll_work_func);
-    INIT_DELAYED_WORK(&chip->prox_thres_cal_work, tmg399x_prox_thres_cal_work_func);
-    INIT_DELAYED_WORK(&chip->prox_offset_cal_work, tmg399x_prox_offset_cal_work_func);
-    INIT_DELAYED_WORK(&chip->gesture_offset_cal_work, tmg399x_gesture_offset_cal_work_func);
-
+    INIT_DELAYED_WORK(&chip->prox_calibrate_work, tmg399x_prox_calibrate_work_func);
+  //  INIT_DELAYED_WORK(&chip->prox_unwakelock_work, tmg399x_unwakelock_work_func);
     hrtimer_init(&chip->prox_unwakelock_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     chip->prox_unwakelock_timer.function = tmg399x_unwakelock_work_func;
+  //  hrtimer_start(&chip->prox_unwakelock_timer, ktime_set(0, 0), HRTIMER_MODE_REL);
+
 
 	init_waitqueue_head(&gesture_drdy_wq);
 	atomic_set(&gesture_drdy, 0);
@@ -5618,6 +4274,7 @@ bypass_ges_idev:
     light_class     = class_create(THIS_MODULE, "light");
     gesture_class   = class_create(THIS_MODULE, "gesture");
 
+ 
     chip->proximity_dev = device_create(proximity_class, NULL, tmg399x_proximity_dev_t, &tmg399x_driver ,"proximity");
     if (IS_ERR(chip->proximity_dev)) 
     {
@@ -5698,9 +4355,9 @@ input_p_register_failed:
 	}	
 input_p_alloc_failed:
 flush_regs_failed:
+id_failed:
 	kfree(chip->segment);
 set_segment_failed:
-id_detect_failed:
 	i2c_set_clientdata(client, NULL);
 	kfree(chip);
 malloc_failed:
@@ -5771,26 +4428,27 @@ static int tmg399x_prox_calibrate(struct tmg399x_chip *chip)
              
     prox_mean = prox_sum/chip->prox_calibrate_times;
 				
-    if ( (prox_max >= 140) && ((prox_max <= 230)) )
+    if (prox_max <= 50)
     {
-		chip->params.prox_th_high = 230;
-        chip->params.prox_th_low  = chip->params.prox_th_high - PROX_THRESHOLD_DISTANCE;
+
+		chip->params.prox_th_high = prox_mean + 110;
+		chip->params.prox_th_low  = prox_mean + 30;
     }
-    else
-    {
-        if (prox_max > 230)
+	  else
+	 {
+        if (prox_max > 170)
         {
-       	    chip->params.prox_th_high = 240;
-            chip->params.prox_th_low  = chip->params.prox_th_high - PROX_THRESHOLD_DISTANCE;
+		chip->params.prox_th_high = 250;
+		chip->params.prox_th_low  = 230;
         }
         else
         {
-    		chip->params.prox_th_high = prox_max + PROX_THRESHOLD_SAFE_DISTANCE;
-            chip->params.prox_th_high = (chip->params.prox_th_high > PROX_THRESHOLD_HIGH_MIN) ? chip->params.prox_th_high : PROX_THRESHOLD_HIGH_MIN;
-            chip->params.prox_th_high = (chip->params.prox_th_high > chip->prox_thres_hi_min) ? chip->params.prox_th_high : chip->prox_thres_hi_min;
-            chip->params.prox_th_low  = chip->params.prox_th_high - PROX_THRESHOLD_DISTANCE;
-        }
-    }    
+           
+		chip->params.prox_th_high = prox_mean +50;
+		chip->params.prox_th_low  = prox_mean +30;
+            
+        }        
+	}
 
 	SENSOR_LOG_ERROR("chip->params.prox_th_high = %d\n",chip->params.prox_th_high );
 	SENSOR_LOG_ERROR("chip->params.prox_th_low  = %d\n",chip->params.prox_th_low);

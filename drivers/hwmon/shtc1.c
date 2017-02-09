@@ -86,12 +86,6 @@ Revision 1-0-0 06/03/2013
      { .compatible = "sencirion,shtc1",},
      {}
  };
-
- static const struct dev_pm_ops shtc1_pm_ops = {
-     .suspend = shtc1_suspend,
-     .resume  = shtc1_resume,
- };
-
  
  MODULE_DEVICE_TABLE(i2c, shtc1_idtable);
  
@@ -99,7 +93,7 @@ Revision 1-0-0 06/03/2013
      .driver = {
          .name = "shtc1",
          .of_match_table = of_shtc1_idtable,
-         .pm = &shtc1_pm_ops,
+         .pm = NULL,
      },
      .id_table = shtc1_idtable_id,
      .probe = shtc1_probe,
@@ -130,20 +124,16 @@ Revision 1-0-0 06/03/2013
 #define SHTC1_CMD_LENGTH      2
 #define SHTC1_RESPONSE_LENGTH 6
  
-#define SHTC1_WORK_SPEED_FAST            1000;
-#define SHTC1_WORK_SPEED_SLOW            10000;
-
 
 static void shtc1_data_init(struct shtc1_data *chip_data)
 {
     chip_data->input_dev_t_name = "temperature";
     chip_data->input_dev_h_name = "humidity";
-    chip_data->input_dev_name   = "temperature_humidity";
 
-    chip_data->temperature_poll_time = SHTC1_WORK_SPEED_SLOW;
-    chip_data->humidity_poll_time    = SHTC1_WORK_SPEED_SLOW;
-    chip_data->poll_time             = SHTC1_WORK_SPEED_SLOW;
-    chip_data->poll_time_minimum     = SHTC1_WORK_SPEED_SLOW;
+    chip_data->temperature_poll_time = 1000;
+    chip_data->humidity_poll_time    = 1000;
+    chip_data->poll_time             = 1000;
+    chip_data->poll_time_minimum     = 20;
 
     chip_data->temperature_debug     = false;
     chip_data->humidity_debug        = false;
@@ -224,15 +214,14 @@ static struct shtc1_data *shtc1_update_client(struct device *dev)
         /*
         * From datasheet:
         *   T = -45 + 175 * ST / 2^16
-        *   RH =100 * SRH / 2^16
+        *   RH = -10 + 120 * SRH / 2^16
         *
         * Adapted for integer fixed point (3 digit) arithmetic
         */
         val = be16_to_cpup((__be16 *)buf);
         chip_data->temperature_data = ((21875 * val) >> 13) - 45000;
         val = be16_to_cpup((__be16 *)(buf+3));
-        //chip_data->humidity_data = ((15000 * val) >> 13);
-        chip_data->humidity_data = (12500 * val) >> 13;
+        chip_data->humidity_data = ((15000 * val) >> 13) - 10000;
 
         chip_data->last_updated = jiffies;
         chip_data->valid = 1;
@@ -297,25 +286,27 @@ static ssize_t shtc1_poll_time_store(struct device *dev, struct device_attribute
     return size;
 }
 
+
+
+
 static void shtc1_temperature_enable(struct shtc1_data *chip_data, bool on)
 {
     SENSOR_LOG_INFO("temperature %s\n",on? "enable" : "disable");
     chip_data->temperature_state = on;
     if (on)
-    {        
-        chip_data->poll_time = SHTC1_WORK_SPEED_FAST;
-        if (false==chip_data->humidity_state)
-        {            
-            cancel_delayed_work_sync(&chip_data->poll_work);
-            schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(100));
-        }
+    {
+       if (false==chip_data->humidity_state)
+       {            
+           schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(100));
+       }
     }
     else
-    {  
-        if (false==chip_data->humidity_state)
-        {
-            chip_data->poll_time = SHTC1_WORK_SPEED_SLOW;
-        }
+    {
+       msleep(50);
+       shtc1_input_temperature(chip_data);
+
+       chip_data->temperature_poll_time = 1000;
+       shtc1_updata_poll_time(chip_data);
     }
 }
 
@@ -360,7 +351,8 @@ static ssize_t shtc1_temperature_data_show(struct device *dev,struct device_attr
 {
 	struct shtc1_data *chip_data = dev_get_drvdata(dev);
     shtc1_update_client(&chip_data->client->dev);
-    //shtc1_input_temperature(chip_data);
+    shtc1_input_temperature(chip_data);
+    SENSOR_LOG_INFO("temperature original = %d\n",chip_data->temperature_data % 1000000);
     return sprintf(buf, "%d\n", chip_data->temperature_data % 1000000);
 }
  
@@ -433,19 +425,18 @@ static void shtc1_humidity_enable(struct shtc1_data *chip_data, bool on)
     chip_data->humidity_state = on;
     if (on)
     {
-        chip_data->poll_time = SHTC1_WORK_SPEED_FAST;
         if (false==chip_data->temperature_state)
-        {          
-            cancel_delayed_work_sync(&chip_data->poll_work);
+        {            
             schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(100));
         }
     }
     else
-    {  
-        if (false==chip_data->temperature_state)
-        {
-            chip_data->poll_time = SHTC1_WORK_SPEED_SLOW;
-        }
+    {
+        msleep(50);
+        shtc1_input_humidity(chip_data);
+
+        chip_data->humidity_poll_time = 1000;
+        shtc1_updata_poll_time(chip_data);
     }
 }
 
@@ -481,7 +472,8 @@ static ssize_t shtc1_humidity_data_show(struct device *dev,struct device_attribu
 {
     struct shtc1_data *chip_data = dev_get_drvdata(dev);
     shtc1_update_client(&chip_data->client->dev);
-    //shtc1_input_humidity(chip_data);
+    shtc1_input_humidity(chip_data);
+    SENSOR_LOG_INFO("humidity original data = %d\n",chip_data->humidity_data % 1000000);
     return sprintf(buf, "%d\n", chip_data->humidity_data % 1000000);
 }
 
@@ -596,7 +588,6 @@ static int shtc1_create_sysfs_interfaces_humidity(struct device *dev)
     return -1;
 }
 
-#if 0
 static void shtc1_input_temperature(struct shtc1_data *chip_data)
 {
     if (chip_data->temperature_debug)
@@ -608,6 +599,7 @@ static void shtc1_input_temperature(struct shtc1_data *chip_data)
     input_sync(chip_data->t_idev);
 }
 
+
 static void shtc1_input_humidity(struct shtc1_data *chip_data)
 {
     if (chip_data->humidity_debug)
@@ -618,25 +610,6 @@ static void shtc1_input_humidity(struct shtc1_data *chip_data)
     input_report_rel(chip_data->h_idev, REL_X, chip_data->humidity_data);
     input_sync(chip_data->h_idev);
 }
-#endif
-
-static void shtc1_input_data(struct shtc1_data *chip_data)
-{
-    if (chip_data->temperature_debug)
-    {
-        SENSOR_LOG_INFO("temperature = %d\n",chip_data->temperature_data);
-    }
-
-    if (chip_data->humidity_debug)
-    {
-        SENSOR_LOG_INFO("humidity = %d\n",chip_data->humidity_data);
-    }
-
-    input_report_rel(chip_data->idev, REL_X, chip_data->temperature_data);
-    input_report_rel(chip_data->idev, REL_Y, chip_data->humidity_data);
-    input_sync(chip_data->idev);
-}
-
 
 static void shtc1_poll_work_func(struct work_struct *work)
 {
@@ -646,7 +619,6 @@ static void shtc1_poll_work_func(struct work_struct *work)
 
     shtc1_update_client(&chip_data->client->dev);
 
-    /*
     if (chip_data->temperature_state)
     {
         shtc1_input_temperature(chip_data);
@@ -661,10 +633,6 @@ static void shtc1_poll_work_func(struct work_struct *work)
     {
         schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(chip_data->poll_time));
     }
-    */
-
-    shtc1_input_data(chip_data);
-    schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(chip_data->poll_time));
 
     mutex_unlock(&chip_data->lock);
 
@@ -777,42 +745,11 @@ static int __devinit shtc1_probe(struct i2c_client *client,
         goto input_h_register_failed;
     }
 
-
-
-    chip_data->idev = input_allocate_device();
-    if (!chip_data->idev) 
-    {
-        SENSOR_LOG_ERROR("input_allocate_device failed\n");
-        ret = -ENODEV;
-        goto input_alloc_failed;
-    }
-
-    chip_data->idev->name = chip_data->input_dev_name;
-    chip_data->idev->id.bustype = BUS_I2C;
-    set_bit(EV_REL, chip_data->idev->evbit);
-    set_bit(REL_X,  chip_data->idev->relbit);
-    set_bit(REL_Y,  chip_data->idev->relbit);
-    dev_set_drvdata(&chip_data->idev->dev, chip_data);
-    ret = input_register_device(chip_data->idev);
-    if (ret) 
-    {
-        SENSOR_LOG_ERROR("cant register input '%s'\n",chip_data->input_dev_name);
-        goto input_register_failed;
-    }
-
-
-
-
     INIT_DELAYED_WORK(&chip_data->poll_work, shtc1_poll_work_func);
 
     SENSOR_LOG_INFO("prob success\n");
 
     return 0;
-
-
-input_register_failed:
-    input_free_device(chip_data->idev);
-input_alloc_failed:
 
 input_h_register_failed:
     input_free_device(chip_data->h_idev);
@@ -832,31 +769,6 @@ create_temperature_dev_failed:
 
     return ret;
 }
-
- //resume
- static int shtc1_resume(struct device *dev)
- {
-     struct shtc1_data *chip_data = dev_get_drvdata(dev);
- 
-     SENSOR_LOG_INFO("enter\n");
-     if ((true==chip_data->temperature_state) && (true==chip_data->humidity_state))
-     {
-        schedule_delayed_work(&chip_data->poll_work, msecs_to_jiffies(chip_data->poll_time));
-     }
-     SENSOR_LOG_INFO("eixt\n");
-     return 0 ;
- }
-  
- //suspend  
- static int shtc1_suspend(struct device *dev)
- {
-     struct shtc1_data *chip_data = dev_get_drvdata(dev);
- 
-     SENSOR_LOG_INFO("enter\n");
-     cancel_delayed_work_sync(&chip_data->poll_work);
-     SENSOR_LOG_INFO("eixt\n");
-     return 0 ;
- }
 
  
  /**

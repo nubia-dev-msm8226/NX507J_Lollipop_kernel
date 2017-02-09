@@ -33,12 +33,9 @@ struct shtc1_data {
 
 	struct input_dev *t_idev;
 	struct input_dev *h_idev;
-	struct input_dev *idev;
-
 
     const char *input_dev_t_name;
     const char *input_dev_h_name;
-    const char *input_dev_name;
 
 
 	struct delayed_work poll_work;
@@ -69,9 +66,7 @@ struct shtc1_data {
 
 static int __devinit shtc1_probe(struct i2c_client *client, const struct i2c_device_id *id);
 static int __devexit shtc1_remove(struct i2c_client *client);
-static void shtc1_input_data(struct shtc1_data *chip_data);
-static int shtc1_resume(struct device *dev);
-static int shtc1_suspend(struct device *dev);
-
+static void shtc1_input_humidity(struct shtc1_data *chip_data);
+static void shtc1_input_temperature(struct shtc1_data *chip_data);
 
 #endif
